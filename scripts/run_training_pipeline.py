@@ -5,6 +5,7 @@ watch a first real training happen. Hits live networks (CelesTrak, RIPE Atlas,
 Open-Meteo ERA5) — all read-only public data.
 """
 
+import sys
 import time
 from datetime import UTC, datetime
 
@@ -33,13 +34,25 @@ def main() -> None:
     log("atlas: enumerating probes on AS14593...")
     cells = atlas.probes_to_cells(atlas.enumerate_probes())
     log(f"atlas: {len(cells)} probes with coordinates")
+    days = int(sys.argv[1]) if len(sys.argv) > 1 else 14
     stop = int(time.time())
-    start = stop - 86400  # last 24h
+    log(f"atlas: backfilling the last {days} days (daily chunks, error-tolerant)")
     results: list[dict] = []
     for i, pid in enumerate(cells, 1):
-        msm = atlas.find_ping_measurement(pid)
+        try:
+            msm = atlas.find_ping_measurement(pid)
+        except Exception:
+            msm = None
         if msm:
-            results.extend(atlas.fetch_ping_results(msm, start, stop, probe_ids=[pid]))
+            # Fetch one day at a time so no single request returns a huge payload
+            # (a 14-day builtin-ping pull times out); skip any chunk that fails.
+            for d in range(days):
+                cs = stop - (d + 1) * 86400
+                ce = stop - d * 86400
+                try:
+                    results.extend(atlas.fetch_ping_results(msm, cs, ce, probe_ids=[pid]))
+                except Exception:
+                    continue
         if i % 20 == 0:
             log(f"atlas: {i}/{len(cells)} probes, {len(results)} ping results so far")
     rows = atlas.aggregate_pings_to_hourly(results, cells)
