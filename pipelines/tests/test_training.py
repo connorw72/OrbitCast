@@ -83,7 +83,7 @@ def test_end_to_end_latency_only_training(tmp_path):
     warehouse.write_mart(build_weather_features(cell_hours, {}), marts / "weather_features.parquet")
 
     con = warehouse.connect(tmp_path / "w.duckdb")
-    report = run_train_models(con, marts, tmp_path / "models", tmp_path / "evals", now=now)
+    report = run_train_models(con, marts, tmp_path / "models", tmp_path / "evals")
 
     assert "skipped" not in report
     assert set(report["targets"]) == {"latency"}

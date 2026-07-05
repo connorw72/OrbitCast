@@ -30,6 +30,22 @@ def time_split(rows: Sequence[dict], cutoff: datetime) -> tuple[list[dict], list
     return train, test
 
 
+def adaptive_cutoff(rows: Sequence[dict], test_fraction: float = 0.25) -> datetime | None:
+    """Cutoff that holds out the most recent ``test_fraction`` of distinct hours.
+
+    A fixed calendar window (e.g. last 30 days) can't split a short bootstrap
+    history — all rows land on one side. This picks the cutoff from the data's own
+    time range so train (past) and test (future) are both non-empty, honoring the
+    time-based-split principle (§6.4) at any history length. Returns None when there
+    are fewer than two distinct hours (nothing to split).
+    """
+    hours = sorted({_naive_utc(r["hour_utc"]) for r in rows})
+    if len(hours) < 2:
+        return None
+    idx = max(1, min(len(hours) - 1, round(len(hours) * (1 - test_fraction))))
+    return hours[idx]
+
+
 def _history_map(rows: Sequence[dict]) -> dict[tuple[int, str, datetime], float]:
     return {(r["h3_cell"], r["target"], _naive_utc(r["hour_utc"])): r["label"] for r in rows}
 

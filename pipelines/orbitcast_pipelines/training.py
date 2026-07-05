@@ -7,15 +7,12 @@ runs. `run_train_models` then builds the matrix and hands it to the promotion-ga
 training run (`orbitcast_ml.registry.run_training`).
 """
 
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import duckdb
 from orbitcast_ml.registry import run_training
+from orbitcast_ml.train import adaptive_cutoff
 from orbitcast_ml.training_matrix import build_training_matrix
-
-# Hold out the most recent `_TEST_WINDOW_DAYS` as the eval set (time-based split).
-_TEST_WINDOW_DAYS = 30
 
 
 def _register_or_empty(
@@ -79,17 +76,18 @@ def run_train_models(
     marts_dir: Path,
     models_dir: Path,
     evals_dir: Path,
-    now: datetime | None = None,
 ) -> dict:
     """Assemble inputs, build the matrix, and run the promotion-gated training.
 
-    Returns the eval report, or ``{"skipped": ...}`` when there are no labels yet.
+    Returns the eval report, or ``{"skipped": ...}`` when there are no labels or too
+    little history to form a time-based train/test split.
     """
     n_labels = assemble_training_inputs(con, marts_dir)
     if n_labels == 0:
         return {"skipped": "no label marts yet"}
 
     rows = build_training_matrix(con)
-    now = now or datetime.now(UTC)
-    cutoff = now - timedelta(days=_TEST_WINDOW_DAYS)
+    cutoff = adaptive_cutoff(rows)
+    if cutoff is None:
+        return {"skipped": "not enough history to split (need >= 2 distinct hours)"}
     return run_training(rows, cutoff, models_dir, evals_dir)
