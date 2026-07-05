@@ -1227,6 +1227,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "orbitcast-core" },
+    { name = "orbitcast-ml" },
     { name = "pydantic-settings" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -1236,6 +1237,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "orbitcast-core", editable = "core" },
+    { name = "orbitcast-ml", editable = "ml" },
     { name = "pydantic-settings", specifier = ">=2.4" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
@@ -1267,6 +1269,7 @@ version = "0.1.0"
 source = { editable = "ml" }
 dependencies = [
     { name = "duckdb" },
+    { name = "h3" },
     { name = "lightgbm" },
     { name = "numpy" },
     { name = "orbitcast-core" },
@@ -1276,6 +1279,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "duckdb", specifier = ">=1.1" },
+    { name = "h3", specifier = ">=4.1" },
     { name = "lightgbm", specifier = ">=4.5" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "orbitcast-core", editable = "core" },
@@ -1294,6 +1298,7 @@ dependencies = [
     { name = "h3" },
     { name = "httpx" },
     { name = "orbitcast-core" },
+    { name = "orbitcast-ml" },
     { name = "pyarrow" },
 ]
 
@@ -1306,6 +1311,7 @@ requires-dist = [
     { name = "h3", specifier = ">=4.1" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "orbitcast-core", editable = "core" },
+    { name = "orbitcast-ml", editable = "ml" },
     { name = "pyarrow", specifier = ">=17" },
 ]
 

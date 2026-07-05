@@ -19,6 +19,7 @@ from orbitcast_core.celestrak import fetch_with_cache
 
 from . import atlas, ookla, warehouse
 from .registry import active_cells
+from .training import run_train_models
 from .validate import assert_mart
 
 # Latest Ookla quarter that is published (quarterly, with a lag).
@@ -83,11 +84,31 @@ def weather_forecast(context: AssetExecutionContext) -> None:
     context.log.info("weather_forecast: hourly cadence wired; forecast_cache lands in Phase 3.")
 
 
+@asset(
+    deps=[atlas_latency, ookla_context],
+    description="Weekly LightGBM quantile training + promotion gate (§6.4); writes "
+    "model artifacts + eval report, promotes only on eval pass.",
+)
+def train_models(context: AssetExecutionContext) -> None:
+    con = warehouse.connect()
+    report = run_train_models(
+        con,
+        warehouse.marts_dir(),
+        warehouse.DATA_DIR / "models",
+        warehouse.DATA_DIR / "evals",
+    )
+    if report.get("skipped"):
+        context.log.warning(f"train_models skipped: {report['skipped']}")
+    else:
+        context.log.info(f"train_models {report['version']} promoted={report['promoted']}")
+
+
 celestrak_job = define_asset_job("celestrak_refresh", selection=[celestrak_gp])
 weather_job = define_asset_job("weather_refresh", selection=[weather_forecast])
 atlas_job = define_asset_job("atlas_ingest", selection=[atlas_latency, active_cell_registry])
 mlab_job = define_asset_job("mlab_ingest", selection=[mlab_labels])
 ookla_job = define_asset_job("ookla_ingest", selection=[ookla_context])
+train_job = define_asset_job("train_models", selection=[train_models])
 
 defs = Definitions(
     assets=[
@@ -97,13 +118,16 @@ defs = Definitions(
         active_cell_registry,
         mlab_labels,
         weather_forecast,
+        train_models,
     ],
-    jobs=[celestrak_job, weather_job, atlas_job, mlab_job, ookla_job],
+    jobs=[celestrak_job, weather_job, atlas_job, mlab_job, ookla_job, train_job],
     schedules=[
         ScheduleDefinition(job=celestrak_job, cron_schedule="0 */2 * * *"),
         ScheduleDefinition(job=weather_job, cron_schedule="0 * * * *"),
         ScheduleDefinition(job=atlas_job, cron_schedule="0 2 * * *"),
         ScheduleDefinition(job=mlab_job, cron_schedule="0 3 1 * *"),
         ScheduleDefinition(job=ookla_job, cron_schedule="0 4 1 1,4,7,10 *"),
+        # Weekly, Sunday 05:00 UTC (§5.5).
+        ScheduleDefinition(job=train_job, cron_schedule="0 5 * * 0"),
     ],
 )

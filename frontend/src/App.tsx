@@ -1,13 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 
-import { fetchSkyview, geocode, type Skyview } from "./api";
+import { fetchForecast, fetchSkyview, geocode, type Forecast, type Skyview } from "./api";
 import { secondsToReconfig } from "./countdown";
+import ForecastChart from "./ForecastChart";
 import "./styles.css";
+
+const BASIS_LABEL: Record<string, string> = {
+  cell: "based on measurements in your cell",
+  region: "based on regional data",
+  latitude_prior: "based on a latitude-band prior (no local data yet)",
+};
 
 export default function App() {
   const [query, setQuery] = useState("");
   const [place, setPlace] = useState<string | null>(null);
   const [data, setData] = useState<Skyview | null>(null);
+  const [forecast, setForecast] = useState<Forecast | null>(null);
+  const [forecastPending, setForecastPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [remaining, setRemaining] = useState(0);
@@ -24,6 +33,13 @@ export default function App() {
       offsetRef.current = Date.parse(sv.server_time) - Date.now();
       setPlace(p.label);
       setData(sv);
+      // Forecast is best-effort: null means no model promoted yet (503).
+      setForecastPending(true);
+      try {
+        setForecast(await fetchForecast(p.lat, p.lon));
+      } finally {
+        setForecastPending(false);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -110,6 +126,25 @@ export default function App() {
               label="Cloud cover"
               value={data.weather ? `${data.weather.cloud_cover_pct.toFixed(0)}%` : "—"}
             />
+          </div>
+
+          <div className="forecast">
+            <h2>Next 48 hours</h2>
+            {forecast ? (
+              <>
+                <ForecastChart horizon={forecast.horizon} />
+                <p className="basis">
+                  {BASIS_LABEL[forecast.basis] ?? forecast.basis}
+                  {forecast.model_version ? ` · model ${forecast.model_version}` : ""}
+                </p>
+              </>
+            ) : forecastPending ? (
+              <p className="muted">Loading forecast…</p>
+            ) : (
+              <p className="muted">
+                Forecast coming soon — the model trains once enough measurements are collected.
+              </p>
+            )}
           </div>
 
           <footer className="notes">

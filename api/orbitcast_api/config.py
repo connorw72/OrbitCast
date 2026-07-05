@@ -16,6 +16,16 @@ class Settings(BaseSettings):
     def celestrak_dir(self) -> Path:
         return self.data_dir / "raw" / "celestrak"
 
+    @property
+    def models_dir(self) -> Path:
+        """Promoted LightGBM artifacts volume (written by train_models)."""
+        return self.data_dir / "models"
+
+    @property
+    def marts_dir(self) -> Path:
+        """DuckDB Parquet marts (Ookla context, label aggregates)."""
+        return self.data_dir / "marts"
+
 
 @lru_cache
 def get_settings() -> Settings:

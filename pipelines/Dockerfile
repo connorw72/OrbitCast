@@ -7,12 +7,17 @@ ENV UV_COMPILE_BYTECODE=1 \
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY core ./core
+COPY ml ./ml
 COPY pipelines ./pipelines
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --package orbitcast-pipelines
 
 FROM python:3.12-slim
 WORKDIR /app
+# libgomp1: OpenMP runtime required by LightGBM (train_models job, §6).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app /app
 ENV PATH="/app/.venv/bin:$PATH" \
     DAGSTER_HOME=/app/dagster_home

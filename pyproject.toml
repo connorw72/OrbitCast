@@ -15,6 +15,7 @@ members = ["core", "api", "pipelines", "ml"]
 
 [tool.uv.sources]
 orbitcast-core = { workspace = true }
+orbitcast-ml = { workspace = true }
 
 [dependency-groups]
 dev = [

@@ -9,6 +9,7 @@ WORKDIR /app
 # Manifests + sources needed to resolve the workspace lockfile.
 COPY pyproject.toml uv.lock ./
 COPY core ./core
+COPY ml ./ml
 COPY api ./api
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --package orbitcast-api
@@ -17,6 +18,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # copied .venv interpreter path stays valid).
 FROM python:3.12-slim
 WORKDIR /app
+# libgomp1: OpenMP runtime required by LightGBM (in-process inference, §7.1).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app /app
 ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8000

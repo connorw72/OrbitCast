@@ -40,12 +40,48 @@ export async function geocode(query: string): Promise<Place> {
   return { lat: parseFloat(r.lat), lon: parseFloat(r.lon), label: r.display_name };
 }
 
+// The server never sees raw coordinates (D12): resolve to an H3 res-5 cell
+// client-side. Cell ids are 64-bit, beyond JS Number precision, so pass the
+// BIGINT as a decimal string.
+function cellId(lat: number, lon: number): string {
+  return BigInt("0x" + latLngToCell(lat, lon, 5)).toString();
+}
+
 export async function fetchSkyview(lat: number, lon: number): Promise<Skyview> {
-  // The server never sees raw coordinates (D12): we resolve to an H3 res-5 cell
-  // client-side. Cell ids are 64-bit, beyond JS Number precision, so pass the
-  // BIGINT as a decimal string.
-  const cellInt = BigInt("0x" + latLngToCell(lat, lon, 5)).toString();
-  const resp = await fetch(`${API_BASE}/v1/skyview?cell=${cellInt}`);
+  const resp = await fetch(`${API_BASE}/v1/skyview?cell=${cellId(lat, lon)}`);
   if (!resp.ok) throw new Error("Sky view service unavailable");
   return (await resp.json()) as Skyview;
+}
+
+export interface Band {
+  q10: number;
+  q50: number;
+  q90: number;
+}
+
+export interface ForecastHour {
+  hour: string;
+  basis: string;
+  latency: Band;
+  dl: Band;
+  weather: { precip_mm_h: number };
+}
+
+export interface Forecast {
+  cell: number;
+  lat: number;
+  lon: number;
+  generated_at: string;
+  model_version: string | null;
+  basis: string;
+  horizon: ForecastHour[];
+}
+
+// Returns null when no model has been promoted yet (503) so the UI can show a
+// "forecast coming soon" state rather than an error.
+export async function fetchForecast(lat: number, lon: number): Promise<Forecast | null> {
+  const resp = await fetch(`${API_BASE}/v1/forecast?cell=${cellId(lat, lon)}`);
+  if (resp.status === 503) return null;
+  if (!resp.ok) throw new Error("Forecast service unavailable");
+  return (await resp.json()) as Forecast;
 }

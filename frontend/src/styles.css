@@ -53,3 +53,16 @@ header h1 { margin: 0; font-size: 2.25rem; letter-spacing: -0.02em; }
 .notes { color: var(--muted); font-size: 0.8rem; line-height: 1.5; margin-top: 1.5rem; }
 .notes p { margin: 0.4rem 0; }
 .attribution { opacity: 0.8; }
+
+/* 48h forecast chart */
+.forecast { margin-top: 1.5rem; }
+.forecast h2 { font-size: 1rem; font-weight: 600; margin: 0 0 0.5rem; opacity: 0.85; }
+.forecast-chart { width: 100%; height: auto; overflow: visible; }
+.forecast-chart .band { fill: rgba(96, 165, 250, 0.22); stroke: none; }
+.forecast-chart .median { stroke: #60a5fa; stroke-width: 2; }
+.forecast-chart .rain-band { fill: rgba(148, 163, 184, 0.18); }
+.forecast-chart .grid { stroke: rgba(148, 163, 184, 0.25); stroke-width: 1; }
+.forecast-chart .axis-label { fill: currentColor; opacity: 0.55; font-size: 11px; }
+.forecast-chart .axis-title { fill: currentColor; opacity: 0.7; font-size: 11px; }
+.basis { font-size: 0.85rem; opacity: 0.7; margin-top: 0.25rem; }
+.muted { opacity: 0.6; font-size: 0.9rem; }

@@ -42,6 +42,50 @@ def parse_current(data: dict) -> WeatherNow:
     )
 
 
+def _http_fetch_series(lat: float, lon: float) -> dict:
+    import httpx
+
+    resp = httpx.get(
+        OPEN_METEO_URL,
+        params={
+            "latitude": lat,
+            "longitude": lon,
+            "hourly": "precipitation",
+            "forecast_days": 2,
+        },
+        timeout=10.0,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def parse_precip_series(data: dict) -> dict[datetime, float]:
+    """Map Open-Meteo hourly output to {UTC hour -> precip mm/h}."""
+    hourly = data.get("hourly", {})
+    times = hourly.get("time", [])
+    precip = hourly.get("precipitation", [])
+    series: dict[datetime, float] = {}
+    for iso, mm in zip(times, precip, strict=False):
+        # Open-Meteo returns naive local-to-UTC ISO strings; we request default UTC.
+        ts = datetime.fromisoformat(iso).replace(tzinfo=UTC)
+        series[ts] = float(mm or 0.0)
+    return series
+
+
+def get_forecast_series(
+    lat: float,
+    lon: float,
+    fetch: Callable[[float, float], dict] = _http_fetch_series,
+) -> dict[datetime, float]:
+    """48 h hourly precipitation series for a location. Empty dict if unavailable
+    (the forecast degrades to zero-precip features rather than failing)."""
+    try:
+        data = fetch(lat, lon)
+    except Exception:
+        return {}
+    return parse_precip_series(data)
+
+
 def get_nowcast(
     cell: int,
     lat: float,
