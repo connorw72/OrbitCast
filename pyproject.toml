@@ -11,7 +11,7 @@ requires-python = ">=3.12"
 package = false
 
 [tool.uv.workspace]
-members = ["core", "api"]
+members = ["core", "api", "pipelines"]
 
 [tool.uv.sources]
 orbitcast-core = { workspace = true }
@@ -34,9 +34,9 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "basic"
-include = ["core", "api"]
+include = ["core", "api", "pipelines"]
 venvPath = "."
 venv = ".venv"
 
 [tool.pytest.ini_options]
-testpaths = ["core/tests", "api/tests"]
+testpaths = ["core/tests", "api/tests", "pipelines/tests"]

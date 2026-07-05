@@ -20,6 +20,22 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Orchestration: webserver + daemon in one container (CLAUDE.md D4, §5.5).
+  # Writes marts + the DuckDB warehouse under ./data (read-write).
+  dagster:
+    build:
+      context: .
+      dockerfile: pipelines/Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - dagster_home:/app/dagster_home
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
   db:
     image: postgres:16
     environment:
@@ -37,3 +53,4 @@ services:
 
 volumes:
   pgdata:
+  dagster_home:
