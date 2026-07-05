@@ -1,0 +1,29 @@
+# Data warehouse & artifacts (never committed — see CLAUDE.md §5.3)
+data/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.pyright/
+*.egg-info/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# DuckDB warehouse
+*.duckdb
+*.duckdb.wal
+
+# Node / frontend
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/dist/
+
+# OS
+.DS_Store

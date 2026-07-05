@@ -1,0 +1,15 @@
+.git
+.github
+.venv
+data
+docs
+frontend
+infra
+ml
+pipelines
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+*.duckdb
+.DS_Store

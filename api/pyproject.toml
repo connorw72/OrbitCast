@@ -1,0 +1,17 @@
+[project]
+name = "orbitcast-api"
+version = "0.1.0"
+description = "OrbitCast FastAPI service"
+requires-python = ">=3.12"
+dependencies = [
+    "orbitcast-core",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["orbitcast_api"]
