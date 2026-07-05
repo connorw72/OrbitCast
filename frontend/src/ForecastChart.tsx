@@ -1,4 +1,6 @@
-import type { ForecastHour } from "./api";
+import type { Band, ForecastHour } from "./api";
+
+type LatencyHour = ForecastHour & { latency: Band };
 
 // Inline SVG 48h forecast chart (no chart dependency — keeps the static bundle
 // self-contained). Shows the q10–q90 latency band, the q50 median line, and rain
@@ -14,36 +16,38 @@ interface Props {
 }
 
 export default function ForecastChart({ horizon }: Props) {
-  if (horizon.length === 0) return null;
+  // Latency may be null until it has labels; chart only the hours that have it.
+  const series = horizon.filter((h): h is LatencyHour => h.latency != null);
+  if (series.length < 2) return null;
 
   const innerW = W - PAD.left - PAD.right;
   const innerH = H - PAD.top - PAD.bottom;
 
-  const lows = horizon.map((h) => h.latency.q10);
-  const highs = horizon.map((h) => h.latency.q90);
+  const lows = series.map((h) => h.latency.q10);
+  const highs = series.map((h) => h.latency.q90);
   const yMin = Math.min(...lows);
   const yMax = Math.max(...highs);
   const ySpan = yMax - yMin || 1;
 
-  const x = (i: number) => PAD.left + (i / (horizon.length - 1)) * innerW;
+  const x = (i: number) => PAD.left + (i / (series.length - 1)) * innerW;
   const y = (v: number) => PAD.top + innerH - ((v - yMin) / ySpan) * innerH;
 
   // q10–q90 band polygon: forward along q90, back along q10.
   const bandPath =
-    horizon.map((h, i) => `${i === 0 ? "M" : "L"}${x(i)},${y(h.latency.q90)}`).join(" ") +
+    series.map((h, i) => `${i === 0 ? "M" : "L"}${x(i)},${y(h.latency.q90)}`).join(" ") +
     " " +
-    horizon
-      .map((_, i) => `L${x(horizon.length - 1 - i)},${y(horizon[horizon.length - 1 - i].latency.q10)}`)
+    series
+      .map((_, i) => `L${x(series.length - 1 - i)},${y(series[series.length - 1 - i].latency.q10)}`)
       .join(" ") +
     " Z";
 
-  const medianPath = horizon
+  const medianPath = series
     .map((h, i) => `${i === 0 ? "M" : "L"}${x(i)},${y(h.latency.q50)}`)
     .join(" ");
 
   // Rain shading: a faint column for each hour with precipitation.
-  const colW = innerW / (horizon.length - 1);
-  const rain = horizon
+  const colW = innerW / (series.length - 1);
+  const rain = series
     .map((h, i) => ({ i, mm: h.weather.precip_mm_h }))
     .filter((r) => r.mm > 0);
 
@@ -74,9 +78,9 @@ export default function ForecastChart({ horizon }: Props) {
       <path d={bandPath} className="band" />
       <path d={medianPath} className="median" fill="none" />
 
-      {[0, 12, 24, 36, horizon.length - 1].map((i) => (
+      {[0, 12, 24, 36, series.length - 1].map((i) => (
         <text key={`x-${i}`} x={x(i)} y={H - 8} className="axis-label" textAnchor="middle">
-          {new Date(horizon[i].hour).getHours()}:00
+          {new Date(series[i].hour).getHours()}:00
         </text>
       ))}
 

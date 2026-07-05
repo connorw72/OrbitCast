@@ -106,15 +106,21 @@ def train_and_evaluate(
     if history is None:
         history = [*train_rows, *test_rows]
 
-    train_targets = {t: to_arrays(train_rows, t)[1] for t in TARGETS}
-    x_train = to_arrays(train_rows, TARGETS[0])[0]
-    weights = {t: to_arrays(train_rows, t)[2] for t in TARGETS}
+    # Train only targets that actually have labels (M-Lab throughput is deferred, so
+    # early on only latency has data — training its booster alone must still work).
+    available = [t for t in TARGETS if to_arrays(train_rows, t)[1].size > 0]
+    if not available:
+        raise ValueError("no target has training labels")
+
+    train_targets = {t: to_arrays(train_rows, t)[1] for t in available}
+    weights = {t: to_arrays(train_rows, t)[2] for t in available}
+    x_train = to_arrays(train_rows, available[0])[0]
 
     kwargs = {"num_rounds": num_rounds} if num_rounds is not None else {}
     model = _train_with_weights(x_train, train_targets, weights, **kwargs)
 
     preds: dict[str, dict[float, list[float]]] = {}
-    for target in TARGETS:
+    for target in available:
         x_test = to_arrays(test_rows, target)[0]
         target_pred = model.predict(x_test)[target]
         preds[target] = {q: list(target_pred[q]) for q in QUANTILES}

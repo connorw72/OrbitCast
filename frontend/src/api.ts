@@ -62,8 +62,9 @@ export interface Band {
 export interface ForecastHour {
   hour: string;
   basis: string;
-  latency: Band;
-  dl: Band;
+  // Null until the target has labels (throughput waits on M-Lab).
+  latency: Band | null;
+  dl: Band | null;
   weather: { precip_mm_h: number };
 }
 

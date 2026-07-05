@@ -22,8 +22,9 @@ class QuantileBand(BaseModel):
 class ForecastHour(BaseModel):
     hour: str  # ISO-8601 UTC
     basis: str  # "cell" | "region" | "latitude_prior" (§6.3 honest provenance)
-    latency: QuantileBand
-    dl: QuantileBand
+    # A target is null until it has labels (throughput waits on M-Lab; §4.2a).
+    latency: QuantileBand | None
+    dl: QuantileBand | None
     weather: dict
 
 

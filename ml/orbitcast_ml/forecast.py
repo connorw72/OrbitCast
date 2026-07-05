@@ -70,22 +70,25 @@ def assemble_payload(
     ``basis`` (honest data-provenance labeling), and that hour's weather.
     """
     q10, q50, q90 = QUANTILES
+
+    def band(target: str, i: int) -> dict | None:
+        # A target with no labels yet (e.g. throughput pre-M-Lab) is absent.
+        if target not in preds:
+            return None
+        return {
+            "q10": float(preds[target][q10][i]),
+            "q50": float(preds[target][q50][i]),
+            "q90": float(preds[target][q90][i]),
+        }
+
     out: list[dict] = []
     for i, h in enumerate(hours):
         out.append(
             {
                 "hour": h.isoformat(),
                 "basis": basis,
-                "latency": {
-                    "q10": float(preds["latency"][q10][i]),
-                    "q50": float(preds["latency"][q50][i]),
-                    "q90": float(preds["latency"][q90][i]),
-                },
-                "dl": {
-                    "q10": float(preds["dl_throughput"][q10][i]),
-                    "q50": float(preds["dl_throughput"][q50][i]),
-                    "q90": float(preds["dl_throughput"][q90][i]),
-                },
+                "latency": band("latency", i),
+                "dl": band("dl_throughput", i),
                 "weather": dict(weather_per_hour[i]),
             }
         )

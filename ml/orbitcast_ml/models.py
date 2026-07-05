@@ -56,10 +56,15 @@ class ForecastModel:
     boosters: dict[tuple[str, float], lgb.Booster]
     feature_names: list[str]
 
+    @property
+    def trained_targets(self) -> list[str]:
+        """Targets that were actually trained (a target with no labels is skipped)."""
+        return sorted({t for (t, _q) in self.boosters})
+
     def predict(self, x: NDArray[np.float64]) -> dict[str, dict[float, NDArray[np.float64]]]:
         x = np.asarray(x, dtype=float)
         out: dict[str, dict[float, NDArray[np.float64]]] = {}
-        for target in TARGETS:
+        for target in self.trained_targets:
             out[target] = {
                 q: np.asarray(self.boosters[(target, q)].predict(x), dtype=float) for q in QUANTILES
             }
@@ -74,7 +79,7 @@ class ForecastModel:
             json.dumps(
                 {
                     "feature_names": self.feature_names,
-                    "targets": list(TARGETS),
+                    "targets": self.trained_targets,
                     "quantiles": list(QUANTILES),
                 },
                 indent=2,
@@ -114,7 +119,7 @@ def train_boosters(
         base.update(params)
 
     boosters: dict[tuple[str, float], lgb.Booster] = {}
-    for target in TARGETS:
+    for target in targets:
         y = np.asarray(targets[target], dtype=float)
         weight = None
         if sample_weights is not None:

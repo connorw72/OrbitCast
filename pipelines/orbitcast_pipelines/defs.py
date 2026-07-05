@@ -6,6 +6,7 @@ defined assets wrap the ingestion functions; schedules give the cadences from
 schedules, sensors, retries, backfills) at a fraction of the memory footprint.
 """
 
+import json
 import time
 
 from dagster import (
@@ -15,12 +16,15 @@ from dagster import (
     asset,
     define_asset_job,
 )
-from orbitcast_core.celestrak import fetch_with_cache
+from orbitcast_core.celestrak import fetch_with_cache, latest_cache
+from orbitcast_core.orbital import satellites_from_gp
 
 from . import atlas, ookla, warehouse
+from .orbital_mart import build_orbital_features, label_cell_hours
 from .registry import active_cells
 from .training import run_train_models
 from .validate import assert_mart
+from .weather_mart import build_weather_mart_from_marts
 
 # Latest Ookla quarter that is published (quarterly, with a lag).
 _OOKLA_YEAR, _OOKLA_QUARTER = 2025, 1
@@ -85,7 +89,32 @@ def weather_forecast(context: AssetExecutionContext) -> None:
 
 
 @asset(
-    deps=[atlas_latency, ookla_context],
+    deps=[atlas_latency],
+    description="Hourly orbital supply features at label (cell,hour) pairs (§4.1, §5.5).",
+)
+def orbital_features(context: AssetExecutionContext) -> None:
+    marts = warehouse.marts_dir()
+    cell_hours = label_cell_hours(marts)
+    latest = latest_cache(warehouse.DATA_DIR / "raw" / "celestrak")
+    sats = satellites_from_gp(json.loads(latest.read_text())) if latest else []
+    rows = build_orbital_features(sats, cell_hours)
+    warehouse.write_mart(rows, marts / "orbital_features.parquet")
+    context.log.info(f"orbital_features rows: {len(rows)} from {len(sats)} satellites")
+
+
+@asset(
+    deps=[atlas_latency],
+    description="ERA5 historical precipitation features at label (cell,hour) pairs (§4.4).",
+)
+def weather_history(context: AssetExecutionContext) -> None:
+    marts = warehouse.marts_dir()
+    rows = build_weather_mart_from_marts(marts)
+    warehouse.write_mart(rows, marts / "weather_features.parquet")
+    context.log.info(f"weather_features rows: {len(rows)}")
+
+
+@asset(
+    deps=[atlas_latency, ookla_context, orbital_features, weather_history],
     description="Weekly LightGBM quantile training + promotion gate (§6.4); writes "
     "model artifacts + eval report, promotes only on eval pass.",
 )
@@ -108,7 +137,9 @@ weather_job = define_asset_job("weather_refresh", selection=[weather_forecast])
 atlas_job = define_asset_job("atlas_ingest", selection=[atlas_latency, active_cell_registry])
 mlab_job = define_asset_job("mlab_ingest", selection=[mlab_labels])
 ookla_job = define_asset_job("ookla_ingest", selection=[ookla_context])
-train_job = define_asset_job("train_models", selection=[train_models])
+train_job = define_asset_job(
+    "train_models", selection=[orbital_features, weather_history, train_models]
+)
 
 defs = Definitions(
     assets=[
@@ -118,6 +149,8 @@ defs = Definitions(
         active_cell_registry,
         mlab_labels,
         weather_forecast,
+        orbital_features,
+        weather_history,
         train_models,
     ],
     jobs=[celestrak_job, weather_job, atlas_job, mlab_job, ookla_job, train_job],
