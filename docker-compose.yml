@@ -10,6 +10,11 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://orbitcast:orbitcast@db:5432/orbitcast
+    volumes:
+      # Read-only CelesTrak GP cache (populated by scripts/refresh_gp.py in
+      # Phase 1; by the Dagster celestrak_refresh job in Phase 2). The serving
+      # path only reads it.
+      - ./data:/app/data:ro
     depends_on:
       db:
         condition: service_healthy
