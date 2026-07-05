@@ -11,6 +11,7 @@ dependencies = [
     "h3>=4.1",
     "dagster>=1.8",
     "dagster-webserver>=1.8",
+    "google-cloud-bigquery>=3.42.1",
 ]
 
 [build-system]
