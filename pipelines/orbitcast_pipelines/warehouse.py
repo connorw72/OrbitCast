@@ -32,6 +32,9 @@ def connect(path: Path | str = WAREHOUSE, read_only: bool = False) -> duckdb.Duc
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(str(path), read_only=read_only)
+    # Marts are canonically UTC (§5.3). Pin the session TZ so timestamp arithmetic
+    # and tz-aware inserts don't shift to the host's local time.
+    con.execute("SET TimeZone='UTC';")
     load_extensions(con)
     return con
 

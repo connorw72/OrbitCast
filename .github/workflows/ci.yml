@@ -14,7 +14,10 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - run: uv sync --dev
+      # --all-packages installs every workspace member (core/api/pipelines/ml) and
+      # their deps; plain `uv sync` only installs the virtual root's dev group, which
+      # leaves member imports (dagster, bigquery, lightgbm, ...) unresolved.
+      - run: uv sync --all-packages --dev
       - name: ruff (lint)
         run: uv run ruff check .
       - name: ruff (format check)
