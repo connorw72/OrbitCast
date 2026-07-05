@@ -39,6 +39,30 @@ def mae(y_true: Sequence[float], y_pred: Sequence[float]) -> float:
     return float(np.abs(yt - yp).mean())
 
 
+def conformal_offset(
+    y_true: Sequence[float],
+    lower: Sequence[float],
+    upper: Sequence[float],
+    target_coverage: float = 0.8,
+) -> float:
+    """Split-conformal (CQR) offset that recalibrates a quantile band.
+
+    Given held-out labels and the model's raw [lower, upper] band, returns the
+    amount to widen each edge by (``lower - offset``, ``upper + offset``) so the
+    band achieves at least ``target_coverage`` marginal coverage (Romano et al.,
+    2019). The conformity score is the signed distance outside the band; a negative
+    offset means the band is too wide and should tighten. The (1 + 1/n) inflation
+    gives the finite-sample guarantee and is clamped to full coverage.
+    """
+    yt = np.asarray(y_true, dtype=float)
+    lo = np.asarray(lower, dtype=float)
+    hi = np.asarray(upper, dtype=float)
+    scores = np.maximum(lo - yt, yt - hi)
+    n = scores.size
+    level = min(1.0, target_coverage * (1.0 + 1.0 / n))
+    return float(np.quantile(scores, level))
+
+
 def promotion_decision(
     cov: float,
     q50_mae: float,

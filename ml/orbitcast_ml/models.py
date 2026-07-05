@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import lightgbm as lgb
@@ -55,6 +55,9 @@ class ForecastModel:
 
     boosters: dict[tuple[str, float], lgb.Booster]
     feature_names: list[str]
+    # Per-target conformal offset (§6.4): the q10 edge shifts down and q90 up by
+    # this amount so the band's empirical coverage hits the target. Empty = raw.
+    calibration: dict[str, float] = field(default_factory=dict)
 
     @property
     def trained_targets(self) -> list[str]:
@@ -65,9 +68,14 @@ class ForecastModel:
         x = np.asarray(x, dtype=float)
         out: dict[str, dict[float, NDArray[np.float64]]] = {}
         for target in self.trained_targets:
-            out[target] = {
+            preds = {
                 q: np.asarray(self.boosters[(target, q)].predict(x), dtype=float) for q in QUANTILES
             }
+            off = self.calibration.get(target, 0.0)
+            if off:
+                preds[0.1] = preds[0.1] - off
+                preds[0.9] = preds[0.9] + off
+            out[target] = preds
         return out
 
     def save(self, directory: Path | str) -> Path:
@@ -81,6 +89,7 @@ class ForecastModel:
                     "feature_names": self.feature_names,
                     "targets": self.trained_targets,
                     "quantiles": list(QUANTILES),
+                    "calibration": self.calibration,
                 },
                 indent=2,
             )
@@ -96,7 +105,11 @@ class ForecastModel:
             for q in manifest["quantiles"]:
                 path = directory / _booster_file(target, q)
                 boosters[(target, q)] = lgb.Booster(model_file=str(path))
-        return cls(boosters=boosters, feature_names=manifest["feature_names"])
+        return cls(
+            boosters=boosters,
+            feature_names=manifest["feature_names"],
+            calibration=manifest.get("calibration", {}),
+        )
 
 
 def train_boosters(

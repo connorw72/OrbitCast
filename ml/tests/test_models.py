@@ -62,6 +62,37 @@ def test_median_beats_predicting_the_mean(synthetic, model):
         assert q50_mae < baseline_mae
 
 
+def test_calibration_offsets_widen_the_band_and_leave_the_median(synthetic, model):
+    x, _ = synthetic
+    raw = model.predict(x[:10])
+    calibrated = ForecastModel(
+        boosters=model.boosters,
+        feature_names=model.feature_names,
+        calibration={"latency": 5.0},
+    )
+    adj = calibrated.predict(x[:10])
+    np.testing.assert_allclose(adj["latency"][0.1], raw["latency"][0.1] - 5.0)
+    np.testing.assert_allclose(adj["latency"][0.9], raw["latency"][0.9] + 5.0)
+    np.testing.assert_allclose(adj["latency"][0.5], raw["latency"][0.5])
+    # A target with no offset is left untouched.
+    np.testing.assert_allclose(adj["dl_throughput"][0.1], raw["dl_throughput"][0.1])
+
+
+def test_calibration_round_trips(synthetic, model, tmp_path):
+    calibrated = ForecastModel(
+        boosters=model.boosters,
+        feature_names=model.feature_names,
+        calibration={"latency": 3.5, "dl_throughput": 2.0},
+    )
+    calibrated.save(tmp_path)
+    reloaded = ForecastModel.load(tmp_path)
+    assert reloaded.calibration == {"latency": 3.5, "dl_throughput": 2.0}
+
+
+def test_calibration_defaults_to_empty(model):
+    assert model.calibration == {}
+
+
 def test_artifacts_round_trip(synthetic, model, tmp_path):
     x, _ = synthetic
     before = model.predict(x[:20])

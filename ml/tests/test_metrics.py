@@ -8,7 +8,13 @@ broken — do not promote.
 
 import math
 
-from orbitcast_ml.metrics import coverage, mae, pinball_loss, promotion_decision
+from orbitcast_ml.metrics import (
+    conformal_offset,
+    coverage,
+    mae,
+    pinball_loss,
+    promotion_decision,
+)
 
 
 def test_pinball_zero_when_perfect():
@@ -58,3 +64,32 @@ def test_promotion_rejects_when_not_beating_persistence():
 def test_promotion_band_edges_inclusive():
     assert promotion_decision(cov=0.78, q50_mae=5.0, persistence_mae=6.0) is True
     assert promotion_decision(cov=0.82, q50_mae=5.0, persistence_mae=6.0) is True
+
+
+def test_conformal_offset_widens_a_too_narrow_band_to_target_coverage():
+    # A zero-width band at 10 covers almost nothing; conformal must widen it so the
+    # calibration set hits at least the target coverage.
+    y = [float(i) for i in range(1, 21)]  # 1..20
+    lower = [10.0] * 20
+    upper = [10.0] * 20
+    off = conformal_offset(y, lower, upper, target_coverage=0.8)
+    assert off > 0
+    widened = coverage(y, [lo - off for lo in lower], [hi + off for hi in upper])
+    assert widened >= 0.8
+
+
+def test_conformal_offset_is_negative_when_band_is_too_wide():
+    # Every point sits deep inside a very wide band -> the offset tightens (negative).
+    y = [10.0] * 20
+    lower = [0.0] * 20
+    upper = [20.0] * 20
+    assert conformal_offset(y, lower, upper, target_coverage=0.8) < 0
+
+
+def test_conformal_offset_clamps_level_at_full_coverage():
+    # With few points the (1+1/n) inflation can exceed 1.0; it must clamp, not raise.
+    y = [1.0, 2.0, 3.0]
+    lower = [0.0] * 3
+    upper = [0.0] * 3
+    off = conformal_offset(y, lower, upper, target_coverage=0.9)
+    assert off == 3.0  # the max score (y - upper), i.e. full coverage

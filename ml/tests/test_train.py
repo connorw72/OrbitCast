@@ -6,14 +6,70 @@ model out of production, so its inputs are pinned here.
 """
 
 import math
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from orbitcast_ml.metrics import COVERAGE_BOUNDS
-from orbitcast_ml.train import evaluate_predictions, time_split
+import numpy as np
+from orbitcast_ml.features import FEATURE_COLUMNS
+from orbitcast_ml.metrics import COVERAGE_BOUNDS, coverage
+from orbitcast_ml.models import ForecastModel, train_boosters
+from orbitcast_ml.train import (
+    evaluate_predictions,
+    fit_calibration,
+    time_split,
+    train_and_evaluate,
+)
+from orbitcast_ml.training_matrix import to_arrays
 
 
 def _row(cell, hour, target, label):
     return {"h3_cell": cell, "hour_utc": hour, "target": target, "label": label}
+
+
+def _matrix_rows(n, rng, start=datetime(2026, 6, 1)):
+    """Full training-matrix rows with a learnable latency signal in one feature."""
+    rows = []
+    for i in range(n):
+        feats = {c: float(rng.standard_normal()) for c in FEATURE_COLUMNS}
+        label = 40.0 + 15.0 * feats["hour_sin"] + rng.normal(0, 8)
+        rows.append(
+            {
+                "h3_cell": 1,
+                "hour_utc": start + timedelta(hours=i),
+                "target": "latency",
+                "label": label,
+                "source_quality": 1.0,
+                **feats,
+            }
+        )
+    return rows
+
+
+def test_fit_calibration_reaches_target_coverage_on_calibration_set():
+    rng = np.random.default_rng(1)
+    fit_rows = _matrix_rows(600, rng)
+    calib_rows = _matrix_rows(300, rng, start=datetime(2026, 6, 26))
+    x, y, _w = to_arrays(fit_rows, "latency")
+    model = train_boosters(x, {"latency": y})
+
+    offsets = fit_calibration(model, calib_rows, target_coverage=0.8)
+    assert "latency" in offsets
+
+    calibrated = ForecastModel(model.boosters, model.feature_names, calibration=offsets)
+    cx = to_arrays(calib_rows, "latency")[0]
+    preds = calibrated.predict(cx)
+    cov = coverage(
+        [r["label"] for r in calib_rows], preds["latency"][0.1], preds["latency"][0.9]
+    )
+    assert cov >= 0.8
+
+
+def test_train_and_evaluate_calibrates_the_trained_target():
+    rng = np.random.default_rng(2)
+    rows = _matrix_rows(500, rng)
+    train_rows, test_rows = time_split(rows, rows[400]["hour_utc"])
+    model, _report = train_and_evaluate(train_rows, test_rows, history=rows)
+    assert "latency" in model.calibration
+    assert math.isfinite(model.calibration["latency"])
 
 
 def test_time_split_partitions_at_cutoff():

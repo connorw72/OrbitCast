@@ -8,11 +8,21 @@ boosters and produces the eval report that gates promotion.
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 
-from .metrics import COVERAGE_BOUNDS, coverage, mae, pinball_loss, promotion_decision
+from .metrics import (
+    COVERAGE_BOUNDS,
+    conformal_offset,
+    coverage,
+    mae,
+    pinball_loss,
+    promotion_decision,
+)
 from .models import QUANTILES, TARGETS, ForecastModel, train_boosters
 from .training_matrix import to_arrays
 
 PERSISTENCE_LAG_DAYS = 7
+# Marginal coverage the conformal recalibration targets — the center of the
+# promotion gate's [0.78, 0.82] band (§6.4).
+CALIBRATION_COVERAGE = 0.8
 
 
 def _naive_utc(dt: datetime) -> datetime:
@@ -44,6 +54,41 @@ def adaptive_cutoff(rows: Sequence[dict], test_fraction: float = 0.25) -> dateti
         return None
     idx = max(1, min(len(hours) - 1, round(len(hours) * (1 - test_fraction))))
     return hours[idx]
+
+
+def fit_calibration(
+    model: ForecastModel,
+    calib_rows: Sequence[dict],
+    target_coverage: float = CALIBRATION_COVERAGE,
+) -> dict[str, float]:
+    """Per-target conformal offset from a held-out calibration set (§6.4, CQR).
+
+    Reads the model's *raw* (uncalibrated) q10/q90 boosters directly, so the offset
+    is computed independent of any calibration already on ``model``. A target with
+    no calibration labels is skipped.
+    """
+    offsets: dict[str, float] = {}
+    for target in model.trained_targets:
+        x, y, _w = to_arrays(calib_rows, target)
+        if y.size == 0:
+            continue
+        q10 = model.boosters[(target, 0.1)].predict(x)
+        q90 = model.boosters[(target, 0.9)].predict(x)
+        offsets[target] = conformal_offset(y, q10, q90, target_coverage)
+    return offsets
+
+
+def _calibration_split(rows: Sequence[dict]) -> tuple[list[dict], list[dict]]:
+    """Hold out the most recent slice of the training rows for conformal calibration.
+
+    Keeps the split time-based (calibration is the future relative to the fit set),
+    consistent with §6.4. Returns ``(rows, [])`` when there isn't enough history to
+    carve out a calibration set, so training still proceeds uncalibrated.
+    """
+    cutoff = adaptive_cutoff(rows)
+    if cutoff is None:
+        return list(rows), []
+    return time_split(rows, cutoff)
 
 
 def _history_map(rows: Sequence[dict]) -> dict[tuple[int, str, datetime], float]:
@@ -128,12 +173,19 @@ def train_and_evaluate(
     if not available:
         raise ValueError("no target has training labels")
 
-    train_targets = {t: to_arrays(train_rows, t)[1] for t in available}
-    weights = {t: to_arrays(train_rows, t)[2] for t in available}
-    x_train = to_arrays(train_rows, available[0])[0]
-
     kwargs = {"num_rounds": num_rounds} if num_rounds is not None else {}
-    model = _train_with_weights(x_train, train_targets, weights, **kwargs)
+
+    # The deployed model uses ALL of train; the test set stays a pristine final eval.
+    model = _boosters_on(train_rows, available, **kwargs)
+
+    # Conformal recalibration: hold out train's most recent slice, fit a proxy on the
+    # earlier part, and estimate the q10/q90 offset from the proxy's residuals on that
+    # slice (§6.4, CQR). The proxy sees less data than the deployed model, so its
+    # residuals — and thus the offset — are conservative (coverage >= target).
+    _fit_rows, calib_rows = _calibration_split(train_rows)
+    if calib_rows and _fit_rows:
+        proxy = _boosters_on(_fit_rows, available, **kwargs)
+        model.calibration = fit_calibration(proxy, calib_rows)
 
     preds: dict[str, dict[float, list[float]]] = {}
     for target in available:
@@ -152,7 +204,13 @@ def train_and_evaluate(
     return model, report
 
 
-def _train_with_weights(x_train, train_targets, weights, **kwargs) -> ForecastModel:
-    # train_boosters builds its own Dataset per target; pass weights through so
-    # noisier sources (mlab) count for less than user/atlas labels (§6.4).
+def _boosters_on(rows: Sequence[dict], available: Sequence[str], **kwargs) -> ForecastModel:
+    """Train the quantile boosters for ``available`` targets from matrix ``rows``.
+
+    Passes per-target sample weights through so noisier sources (mlab) count for
+    less than user/atlas labels (§6.4).
+    """
+    train_targets = {t: to_arrays(rows, t)[1] for t in available}
+    weights = {t: to_arrays(rows, t)[2] for t in available}
+    x_train = to_arrays(rows, available[0])[0]
     return train_boosters(x_train, train_targets, sample_weights=weights, **kwargs)
