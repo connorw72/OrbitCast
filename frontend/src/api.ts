@@ -86,3 +86,27 @@ export async function fetchForecast(lat: number, lon: number): Promise<Forecast 
   if (!resp.ok) throw new Error("Forecast service unavailable");
   return (await resp.json()) as Forecast;
 }
+
+export interface MapCell {
+  cell: string; // 64-bit H3 id as a decimal string (beyond JS Number precision)
+  value: number;
+  basis: string;
+  n: number;
+}
+
+export interface RegionMap {
+  res: number;
+  metric: string;
+  generated_at: string;
+  model_version: string | null;
+  cells: MapCell[];
+}
+
+// Regional hex aggregates for the map (CLAUDE.md §7.4). Returns null on 503 (no
+// promoted model yet) so the UI degrades to a "coming soon" state like the chart.
+export async function fetchMap(res = 4, metric = "dl_q50"): Promise<RegionMap | null> {
+  const resp = await fetch(`${API_BASE}/v1/map?res=${res}&metric=${encodeURIComponent(metric)}`);
+  if (resp.status === 503) return null;
+  if (!resp.ok) throw new Error("Map service unavailable");
+  return (await resp.json()) as RegionMap;
+}

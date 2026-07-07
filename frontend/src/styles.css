@@ -66,3 +66,21 @@ header h1 { margin: 0; font-size: 2.25rem; letter-spacing: -0.02em; }
 .forecast-chart .axis-title { fill: currentColor; opacity: 0.7; font-size: 11px; }
 .basis { font-size: 0.85rem; opacity: 0.7; margin-top: 0.25rem; }
 .muted { opacity: 0.6; font-size: 0.9rem; }
+
+/* regional hex map */
+.region { margin-top: 1.5rem; }
+.region h2 { font-size: 1rem; font-weight: 600; margin: 0 0 0.5rem; opacity: 0.85; }
+.region-map svg {
+  width: 100%; height: auto; display: block;
+  background: #0d1322; border: 1px solid #24304a; border-radius: 0.75rem;
+}
+.map-legend {
+  display: flex; align-items: center; gap: 0.5rem;
+  margin-top: 0.5rem; font-size: 0.75rem; color: var(--muted); flex-wrap: wrap;
+}
+.map-legend .legend-label { font-weight: 600; color: var(--fg); opacity: 0.8; }
+.map-legend .legend-ramp {
+  width: 90px; height: 8px; border-radius: 4px;
+  background: linear-gradient(to right, rgb(37,52,148), rgb(46,196,182));
+}
+.map-legend .legend-note { margin-left: auto; opacity: 0.75; }

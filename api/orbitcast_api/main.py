@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .routes import forecast, skyview
+from .routes import map as map_routes
 
 app = FastAPI(title="OrbitCast API", version="0.1.0")
 
@@ -25,6 +26,7 @@ app.add_middleware(
 
 app.include_router(skyview.router)
 app.include_router(forecast.router)
+app.include_router(map_routes.router)
 
 
 @app.get("/healthz")

@@ -1,8 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 
-import { fetchForecast, fetchSkyview, geocode, type Forecast, type Skyview } from "./api";
+import {
+  fetchForecast,
+  fetchMap,
+  fetchSkyview,
+  geocode,
+  type Forecast,
+  type RegionMap as RegionMapData,
+  type Skyview,
+} from "./api";
 import { secondsToReconfig } from "./countdown";
 import ForecastChart from "./ForecastChart";
+import RegionMap from "./RegionMap";
 import "./styles.css";
 
 const BASIS_LABEL: Record<string, string> = {
@@ -16,6 +25,7 @@ export default function App() {
   const [place, setPlace] = useState<string | null>(null);
   const [data, setData] = useState<Skyview | null>(null);
   const [forecast, setForecast] = useState<Forecast | null>(null);
+  const [regionMap, setRegionMap] = useState<RegionMapData | null>(null);
   const [forecastPending, setForecastPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -33,10 +43,16 @@ export default function App() {
       offsetRef.current = Date.parse(sv.server_time) - Date.now();
       setPlace(p.label);
       setData(sv);
-      // Forecast is best-effort: null means no model promoted yet (503).
+      // Forecast + regional map are best-effort: null means no model promoted
+      // yet (503). Fetched in parallel; the map is independent of exact location.
       setForecastPending(true);
       try {
-        setForecast(await fetchForecast(p.lat, p.lon));
+        const [fc, rm] = await Promise.all([
+          fetchForecast(p.lat, p.lon),
+          fetchMap().catch(() => null),
+        ]);
+        setForecast(fc);
+        setRegionMap(rm);
       } finally {
         setForecastPending(false);
       }
@@ -146,6 +162,17 @@ export default function App() {
               </p>
             )}
           </div>
+
+          {regionMap && regionMap.cells.length > 0 && (
+            <div className="region">
+              <h2>Regional forecast</h2>
+              <RegionMap data={regionMap} />
+              <p className="basis">
+                Median download forecast across cells with data, aggregated to H3 res {regionMap.res}.
+                Hexes are drawn only where a signal exists — not a global grid.
+              </p>
+            </div>
+          )}
 
           <footer className="notes">
             <p>

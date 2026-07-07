@@ -40,6 +40,30 @@ class ForecastResponse(BaseModel):
     horizon: list[ForecastHour]
 
 
+class MapCell(BaseModel):
+    """One aggregated hex for the regional map (§7.4): the metric value, the best
+    provenance among the cell's children, and how many res-5 cells rolled into it.
+
+    ``cell`` is the 64-bit H3 id as a decimal *string* — it exceeds JS Number
+    precision, so it must survive JSON as text (same reason the client sends cells
+    as strings in requests)."""
+
+    cell: str
+    value: float
+    basis: str
+    n: int
+
+
+class MapResponse(BaseModel):
+    """Cell aggregates for the deck-style hex map (§7.3 GET /v1/map)."""
+
+    res: int
+    metric: str
+    generated_at: datetime
+    model_version: str | None
+    cells: list[MapCell]
+
+
 class SkyviewResponse(BaseModel):
     """Deterministic sky view for a location (no ML). Supply proxies only — we do
     not claim which satellite serves the user (F3)."""
