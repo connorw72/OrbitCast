@@ -1,8 +1,9 @@
 """Response models for the API surface (CLAUDE.md §7.3)."""
 
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class WeatherNow(BaseModel):
@@ -62,6 +63,47 @@ class MapResponse(BaseModel):
     generated_at: datetime
     model_version: str | None
     cells: list[MapCell]
+
+
+class UserCreate(BaseModel):
+    """Mint an anonymous user. The client sends only its res-5 cell, never raw
+    coordinates (D12); the cell is optional so a user can register before choosing
+    a location."""
+
+    h3_cell: int | None = None
+
+
+class UserCreated(BaseModel):
+    """The token is returned exactly once — the server keeps only its hash (§7.2)."""
+
+    user_id: str
+    token: str
+    h3_cell: int | None
+
+
+class MeasurementIn(BaseModel):
+    """One crowdsourced sample (§4.3). Locations are res-5 cells chosen client-side.
+    Latency-only for the browser probe; the reporter also carries throughput,
+    obstruction, and hardware version."""
+
+    ts: datetime
+    h3_cell: int
+    source: Literal["reporter", "browser"]
+    latency_ms: float | None = Field(default=None, ge=0)
+    dl_mbps: float | None = Field(default=None, ge=0)
+    ul_mbps: float | None = Field(default=None, ge=0)
+    obstruction_pct: float | None = Field(default=None, ge=0, le=100)
+    hw_version: str | None = None
+
+
+class MeasurementBatch(BaseModel):
+    """A batch ingest (§7.3). Bounded so one request can't dump unbounded rows."""
+
+    measurements: list[MeasurementIn] = Field(min_length=1, max_length=1000)
+
+
+class MeasurementBatchResult(BaseModel):
+    accepted: int
 
 
 class SkyviewResponse(BaseModel):

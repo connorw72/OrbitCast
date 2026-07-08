@@ -3,6 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,6 +12,13 @@ class Settings(BaseSettings):
 
     # Root of the gitignored data tree; the CelesTrak cache lives under it.
     data_dir: Path = Path("data")
+
+    # Serving-store DSN (§7.2). Read from the unprefixed DATABASE_URL that
+    # docker-compose sets; defaults to the local compose Postgres for host runs.
+    database_url: str = Field(
+        default="postgresql://orbitcast:orbitcast@localhost:5432/orbitcast",
+        validation_alias="DATABASE_URL",
+    )
 
     @property
     def celestrak_dir(self) -> Path:
