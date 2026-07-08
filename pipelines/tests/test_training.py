@@ -47,6 +47,34 @@ def test_atlas_mart_becomes_latency_labels(tmp_path):
     assert labels == [42.0, 48.0]
 
 
+def test_mlab_mart_becomes_throughput_and_latency_labels(tmp_path):
+    marts = tmp_path / "marts"
+    marts.mkdir()
+    cell4 = h3.str_to_int(h3.latlng_to_cell(52.28, 8.05, 4))
+    warehouse.write_mart(
+        [
+            {
+                "h3_cell": cell4,
+                "hour_utc": datetime(2026, 7, 6, 12, tzinfo=UTC),
+                "dl_mbps_median": 150.0,
+                "rtt_ms_median": 38.0,
+                "samples": 20,
+            }
+        ],
+        marts / "mlab_throughput_hourly.parquet",
+    )
+
+    con = warehouse.connect(tmp_path / "w.duckdb")
+    n = assemble_training_inputs(con, marts)
+    assert n == 2  # one throughput label + one latency label from the same row
+
+    rows = build_training_matrix(con)
+    by_target = {r["target"]: r for r in rows}
+    assert by_target["dl_throughput"]["label"] == 150.0
+    assert by_target["latency"]["label"] == 38.0
+    assert by_target["dl_throughput"]["source_quality"] == 1.0  # mlab tier
+
+
 def test_no_marts_yields_zero_labels(tmp_path):
     con = warehouse.connect(tmp_path / "w.duckdb")
     n = assemble_training_inputs(con, tmp_path / "marts")

@@ -5,6 +5,7 @@ promotion gate. `train_and_evaluate` ties the training-matrix rows to the six
 boosters and produces the eval report that gates promotion.
 """
 
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 
@@ -56,6 +57,38 @@ def adaptive_cutoff(rows: Sequence[dict], test_fraction: float = 0.25) -> dateti
     return hours[idx]
 
 
+def stratified_time_split(
+    rows: Sequence[dict], test_fraction: float = 0.25
+) -> tuple[list[dict], list[dict]]:
+    """Split each (target, source) group at its own time cutoff, then union.
+
+    Sources cover different time ranges *and* different distributions (Atlas
+    latency is recent and low-variance; M-Lab minRTT is earlier and wider). A
+    single global cutoff then (a) hands a whole target zero test rows when its
+    sources don't overlap, and (b) makes the calibration set one source while the
+    test set is another — breaking the exchangeability the conformal band relies
+    on (§6.4), which shows up as coverage well below target. Splitting per
+    (target, source) holds out each source's own recent tail, so train, calibration
+    and test all carry the same source mix. A group with fewer than two distinct
+    hours goes wholly to train (nothing to hold out).
+    """
+    groups: dict[tuple, list[dict]] = defaultdict(list)
+    for r in rows:
+        groups[(r["target"], r.get("source"))].append(r)
+
+    train: list[dict] = []
+    test: list[dict] = []
+    for group_rows in groups.values():
+        cutoff = adaptive_cutoff(group_rows, test_fraction)
+        if cutoff is None:
+            train.extend(group_rows)
+            continue
+        tr, te = time_split(group_rows, cutoff)
+        train.extend(tr)
+        test.extend(te)
+    return train, test
+
+
 def fit_calibration(
     model: ForecastModel,
     calib_rows: Sequence[dict],
@@ -82,13 +115,16 @@ def _calibration_split(rows: Sequence[dict]) -> tuple[list[dict], list[dict]]:
     """Hold out the most recent slice of the training rows for conformal calibration.
 
     Keeps the split time-based (calibration is the future relative to the fit set),
-    consistent with §6.4. Returns ``(rows, [])`` when there isn't enough history to
-    carve out a calibration set, so training still proceeds uncalibrated.
+    consistent with §6.4, and stratified by (target, source) so the calibration set
+    carries the same source mix as the test set — a single global cutoff would make
+    calibration one source and test another, breaking conformal coverage. Returns
+    ``(rows, [])`` when there isn't enough history to carve out a calibration set,
+    so training still proceeds uncalibrated.
     """
-    cutoff = adaptive_cutoff(rows)
-    if cutoff is None:
+    fit_rows, calib_rows = stratified_time_split(rows)
+    if not calib_rows:
         return list(rows), []
-    return time_split(rows, cutoff)
+    return fit_rows, calib_rows
 
 
 def _history_map(rows: Sequence[dict]) -> dict[tuple[int, str, datetime], float]:
@@ -210,7 +246,18 @@ def _boosters_on(rows: Sequence[dict], available: Sequence[str], **kwargs) -> Fo
     Passes per-target sample weights through so noisier sources (mlab) count for
     less than user/atlas labels (§6.4).
     """
-    train_targets = {t: to_arrays(rows, t)[1] for t in available}
-    weights = {t: to_arrays(rows, t)[2] for t in available}
-    x_train = to_arrays(rows, available[0])[0]
-    return train_boosters(x_train, train_targets, sample_weights=weights, **kwargs)
+    # Each target is a distinct subset of long-format rows (differing null
+    # patterns), so every target needs its own feature matrix — not target[0]'s,
+    # which would mismatch label length and crash LightGBM.
+    arrays = {t: to_arrays(rows, t) for t in available}
+    feature_matrices = {t: a[0] for t, a in arrays.items()}
+    train_targets = {t: a[1] for t, a in arrays.items()}
+    weights = {t: a[2] for t, a in arrays.items()}
+    x_train = feature_matrices[available[0]]
+    return train_boosters(
+        x_train,
+        train_targets,
+        sample_weights=weights,
+        feature_matrices=feature_matrices,
+        **kwargs,
+    )

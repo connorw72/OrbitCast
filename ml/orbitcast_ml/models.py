@@ -119,11 +119,15 @@ def train_boosters(
     params: Mapping | None = None,
     num_rounds: int = _NUM_ROUNDS,
     sample_weights: Mapping[str, Sequence[float]] | None = None,
+    feature_matrices: Mapping[str, NDArray[np.float64]] | None = None,
 ) -> ForecastModel:
     """Train one quantile booster per (target, quantile).
 
-    ``x`` is a 2D array of shape (n, len(FEATURE_COLUMNS)); ``targets`` maps each
-    target name to its label vector. ``sample_weights`` optionally down-weights
+    ``x`` is a 2D array of shape (n, len(FEATURE_COLUMNS)) shared by all targets;
+    ``targets`` maps each target name to its label vector. When targets come from
+    long-format rows with differing null patterns each has its own feature matrix
+    — pass ``feature_matrices`` (target -> X) and each target trains on its own X
+    (``x`` is then just the fallback). ``sample_weights`` optionally down-weights
     noisier label sources per target (user > atlas > mlab, §6.4).
     """
     x = np.asarray(x, dtype=float)
@@ -134,10 +138,11 @@ def train_boosters(
     boosters: dict[tuple[str, float], lgb.Booster] = {}
     for target in targets:
         y = np.asarray(targets[target], dtype=float)
+        xt = x if feature_matrices is None else np.asarray(feature_matrices[target], dtype=float)
         weight = None
         if sample_weights is not None:
             weight = np.asarray(sample_weights[target], dtype=float)
-        dataset = lgb.Dataset(x, label=y, weight=weight, feature_name=list(FEATURE_COLUMNS))
+        dataset = lgb.Dataset(xt, label=y, weight=weight, feature_name=list(FEATURE_COLUMNS))
         for q in quantiles:
             booster_params = dict(base, alpha=q)
             boosters[(target, q)] = lgb.train(booster_params, dataset, num_boost_round=num_rounds)

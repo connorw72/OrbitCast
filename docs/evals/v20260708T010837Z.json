@@ -1,0 +1,35 @@
+{
+  "trained_at": "2026-07-08T01:08:37.768160+00:00",
+  "n_train": 64577,
+  "n_test": 22105,
+  "targets": {
+    "latency": {
+      "pinball": {
+        "0.1": 1.7173731539104993,
+        "0.5": 5.462947286625692,
+        "0.9": 3.8500703513946353
+      },
+      "coverage": 0.8073909171861087,
+      "q50_mae": 9.648396788873306,
+      "persistence_mae": 12.854738140347054,
+      "beats_persistence": true,
+      "calibrated": true,
+      "promote": true
+    },
+    "dl_throughput": {
+      "pinball": {
+        "0.1": 5.707884663520721,
+        "0.5": 17.148642559501443,
+        "0.9": 9.766651586867813
+      },
+      "coverage": 0.8128735632183908,
+      "q50_mae": 30.718034993718454,
+      "persistence_mae": 41.91785480264393,
+      "beats_persistence": true,
+      "calibrated": true,
+      "promote": true
+    }
+  },
+  "promoted": true,
+  "version": "v20260708T010837Z"
+}

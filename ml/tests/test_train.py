@@ -15,6 +15,7 @@ from orbitcast_ml.models import ForecastModel, train_boosters
 from orbitcast_ml.train import (
     evaluate_predictions,
     fit_calibration,
+    stratified_time_split,
     time_split,
     train_and_evaluate,
 )
@@ -70,6 +71,83 @@ def test_train_and_evaluate_calibrates_the_trained_target():
     model, _report = train_and_evaluate(train_rows, test_rows, history=rows)
     assert "latency" in model.calibration
     assert math.isfinite(model.calibration["latency"])
+
+
+def _target_rows(hours, rng, target, start=datetime(2026, 6, 1)):
+    rows = []
+    for i in hours:
+        feats = {c: float(rng.standard_normal()) for c in FEATURE_COLUMNS}
+        label = 40.0 + 15.0 * feats["hour_sin"] + rng.normal(0, 8)
+        rows.append(
+            {
+                "h3_cell": 1,
+                "hour_utc": start + timedelta(hours=i),
+                "target": target,
+                "label": label,
+                "source_quality": 1.0,
+                **feats,
+            }
+        )
+    return rows
+
+
+def test_train_and_evaluate_handles_targets_with_unequal_row_counts():
+    # Regression: M-Lab yields latency and dl_throughput as separate long-format
+    # rows with different null patterns, so each target has a distinct feature
+    # matrix. The trainer must use each target's own X, not target[0]'s, else
+    # LightGBM raises "Length of labels differs from the length of #data".
+    # Both targets span the same range (as real M-Lab does) but throughput is
+    # sparser, so their row counts differ.
+    rng = np.random.default_rng(7)
+    rows = _target_rows(range(500), rng, "latency") + _target_rows(
+        range(0, 500, 2), rng, "dl_throughput"
+    )
+    cutoff = datetime(2026, 6, 1) + timedelta(hours=450)
+    train_rows, test_rows = time_split(rows, cutoff)
+
+    model, report = train_and_evaluate(train_rows, test_rows, history=rows)
+
+    assert set(report["targets"]) == {"latency", "dl_throughput"}
+    for target in ("latency", "dl_throughput"):
+        x = to_arrays(test_rows, target)[0]
+        preds = model.predict(x)[target]
+        assert len(preds[0.5]) == len(x)
+
+
+def test_split_gives_every_target_a_test_set_across_disjoint_ranges():
+    # Real M-Lab situation: throughput (M-Lab) and latency (Atlas) cover disjoint
+    # time ranges. A single global cutoff falls in the gap and hands throughput
+    # zero test rows; stratified splitting must hold out each group's own tail.
+    rng = np.random.default_rng(11)
+    latency = _target_rows(range(200), rng, "latency", start=datetime(2026, 6, 27))
+    throughput = _target_rows(range(200), rng, "dl_throughput", start=datetime(2026, 5, 31))
+    train, test = stratified_time_split(latency + throughput)
+
+    test_targets = {r["target"] for r in test}
+    assert test_targets == {"latency", "dl_throughput"}
+    # Every test row is strictly later than that target's train rows.
+    for target in ("latency", "dl_throughput"):
+        tr = [r["hour_utc"] for r in train if r["target"] == target]
+        te = [r["hour_utc"] for r in test if r["target"] == target]
+        assert te and min(te) >= max(tr)
+
+
+def test_split_stratifies_by_source_so_calibration_and_test_share_the_mix():
+    # One target fed by two sources with disjoint time ranges (Atlas latency is
+    # recent; M-Lab minRTT is earlier). A per-target-only split would put one
+    # source entirely in train and the other in test, making calibration and test
+    # non-exchangeable and breaking conformal coverage (§6.4). Stratifying by
+    # (target, source) must place BOTH sources in the test tail.
+    rng = np.random.default_rng(13)
+    atlas = _target_rows(range(200), rng, "latency", start=datetime(2026, 6, 27))
+    for r in atlas:
+        r["source"] = "atlas"
+    mlab = _target_rows(range(200), rng, "latency", start=datetime(2026, 5, 31))
+    for r in mlab:
+        r["source"] = "mlab"
+
+    _train, test = stratified_time_split(atlas + mlab)
+    assert {r["source"] for r in test} == {"atlas", "mlab"}
 
 
 def test_time_split_partitions_at_cutoff():

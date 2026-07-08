@@ -46,6 +46,19 @@ def assemble_training_inputs(con: duckdb.DuckDBPyConnection, marts_dir: Path) ->
             f"'atlas', samples FROM read_parquet('{atlas}')"
         )
 
+    # M-Lab res-4 aggregates give both throughput and minRTT labels (§4.2a, §6.2).
+    # NULL medians (a cell-hour missing one metric) are excluded per target.
+    mlab = marts_dir / "mlab_throughput_hourly.parquet"
+    if mlab.exists():
+        con.execute(
+            "INSERT INTO labels SELECT h3_cell, hour_utc, 'dl_throughput', dl_mbps_median, "
+            f"'mlab', samples FROM read_parquet('{mlab}') WHERE dl_mbps_median IS NOT NULL"
+        )
+        con.execute(
+            "INSERT INTO labels SELECT h3_cell, hour_utc, 'latency', rtt_ms_median, "
+            f"'mlab', samples FROM read_parquet('{mlab}') WHERE rtt_ms_median IS NOT NULL"
+        )
+
     _register_or_empty(
         con,
         "orbital_features",
@@ -87,7 +100,9 @@ def run_train_models(
         return {"skipped": "no label marts yet"}
 
     rows = build_training_matrix(con)
-    cutoff = adaptive_cutoff(rows)
-    if cutoff is None:
+    # Guard: need at least two distinct hours somewhere to form any split.
+    if adaptive_cutoff(rows) is None:
         return {"skipped": "not enough history to split (need >= 2 distinct hours)"}
-    return run_training(rows, cutoff, models_dir, evals_dir)
+    # cutoff=None -> per-target split, so a target whose source (e.g. M-Lab June)
+    # doesn't overlap another (e.g. Atlas July) still gets its own test set.
+    return run_training(rows, None, models_dir, evals_dir)

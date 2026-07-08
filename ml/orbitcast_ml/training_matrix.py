@@ -58,6 +58,7 @@ def training_matrix_sql(
         b.h3_cell,
         b.hour_utc,
         b.target,
+        b.source,
         b.label,
         sin(2 * pi() * b.decimal_hour / 24) AS hour_sin,
         cos(2 * pi() * b.decimal_hour / 24) AS hour_cos,
@@ -103,6 +104,10 @@ def to_arrays(
     """
     selected = [r for r in rows if r["target"] == target]
     x = np.array([[_nan(r[col]) for col in FEATURE_COLUMNS] for r in selected], dtype=float)
+    if x.size == 0:
+        # No rows for this target: keep X 2-D as (0, n_features) so downstream
+        # LightGBM predict (which rejects 1-D input) still accepts it.
+        x = x.reshape(0, len(FEATURE_COLUMNS))
     y = np.array([r["label"] for r in selected], dtype=float)
     w = np.array([r["source_quality"] for r in selected], dtype=float)
     return x, y, w

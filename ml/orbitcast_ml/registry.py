@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .train import time_split, train_and_evaluate
+from .train import stratified_time_split, time_split, train_and_evaluate
 
 # Pointer file (under the models root) naming the currently promoted version.
 PROMOTED_POINTER = "PROMOTED"
@@ -34,18 +34,26 @@ def write_eval_report(report: dict, evals_dir: Path | str, version: str) -> Path
 
 def run_training(
     rows: Sequence[dict],
-    cutoff: datetime,
+    cutoff: datetime | None,
     models_root: Path | str,
     evals_dir: Path | str,
     num_rounds: int | None = None,
 ) -> dict:
     """Train, evaluate against the gate, and persist artifacts + eval report.
 
+    ``cutoff=None`` splits each (target, source) at its own tail
+    (`stratified_time_split`) — the default for heterogeneous-source data, where one
+    global cutoff can starve a target of test rows or make calibration and test
+    different sources. Pass an explicit ``cutoff`` to force a single global split.
+
     Returns the eval report (with ``version`` and ``promoted``). Model artifacts
     and the PROMOTED pointer are written only when ``promoted`` is True.
     """
     models_root = Path(models_root)
-    train_rows, test_rows = time_split(rows, cutoff)
+    if cutoff is None:
+        train_rows, test_rows = stratified_time_split(rows)
+    else:
+        train_rows, test_rows = time_split(rows, cutoff)
     model, report = train_and_evaluate(train_rows, test_rows, history=rows, num_rounds=num_rounds)
 
     version = new_version()
