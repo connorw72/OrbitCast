@@ -25,4 +25,6 @@ RUN apt-get update \
 COPY --from=build /app /app
 ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8000
-CMD ["uvicorn", "orbitcast_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --no-access-log: access lines carry client IPs, and docker logs persist to disk;
+# D12 forbids storing raw IPs, and the privacy page promises logs don't contain them.
+CMD ["uvicorn", "orbitcast_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]

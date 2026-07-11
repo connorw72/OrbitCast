@@ -26,7 +26,7 @@ export interface Place {
   label: string;
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
 // Client-side geocode (Nominatim). Attribution shown in the UI; called only on
 // submit, never per keystroke, to respect the usage policy (CLAUDE.md §7.3).
@@ -45,6 +45,12 @@ export async function geocode(query: string): Promise<Place> {
 // BIGINT as a decimal string.
 function cellId(lat: number, lon: number): string {
   return BigInt("0x" + latLngToCell(lat, lon, 5)).toString();
+}
+
+// The canonical hex H3 index for display — what the dish reporter's --cell flag
+// takes (reporter/README.md).
+export function cellHex(lat: number, lon: number): string {
+  return latLngToCell(lat, lon, 5);
 }
 
 export async function fetchSkyview(lat: number, lon: number): Promise<Skyview> {
@@ -109,4 +115,72 @@ export async function fetchMap(res = 4, metric = "dl_q50"): Promise<RegionMap | 
   if (resp.status === 503) return null;
   if (!resp.ok) throw new Error("Map service unavailable");
   return (await resp.json()) as RegionMap;
+}
+
+export interface DishDoctor {
+  verdict: "insufficient_data" | "healthy" | "underperforming";
+  n_evaluated: number;
+  below_q10_count: number;
+  distinct_hours_below: number;
+  p_value: number | null;
+  effect_size_pct: number | null;
+  median_obstruction_pct: number | null;
+  basis: string;
+}
+
+export interface LatencySample {
+  ts: string; // ISO-8601 UTC, captured when the round trip completed
+  latency_ms: number;
+}
+
+// Mint an anonymous token (CLAUDE.md §7.3, D12). Minted with no cell — locations
+// travel per-measurement as res-5 cells — which also sidesteps sending a 64-bit
+// H3 id as a JSON number (beyond JS Number precision).
+export async function mintUser(): Promise<string> {
+  const resp = await fetch(`${API_BASE}/v1/users`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!resp.ok) throw new Error("Could not register an anonymous token");
+  return ((await resp.json()) as { token: string }).token;
+}
+
+// Submit browser-probe latency samples (CLAUDE.md §4.3.2). The server never sees
+// coordinates: the location is resolved to an H3 res-5 cell here and sent as a
+// decimal string (D12), the same contract as the map/skyview paths. Returns how
+// many rows the server accepted.
+export async function submitMeasurements(
+  token: string,
+  samples: LatencySample[],
+  lat: number,
+  lon: number,
+): Promise<number> {
+  const cell = cellId(lat, lon);
+  const measurements = samples.map((s) => ({
+    ts: s.ts,
+    h3_cell: cell,
+    source: "browser" as const,
+    latency_ms: s.latency_ms,
+  }));
+  const resp = await fetch(`${API_BASE}/v1/measurements`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ measurements }),
+  });
+  if (!resp.ok) throw new Error("Could not submit measurements");
+  return ((await resp.json()) as { accepted: number }).accepted;
+}
+
+// Per-user Dish Doctor verdict (CLAUDE.md §6.4). Authenticated with the user's
+// anonymous token. Returns null on 503 (no model promoted yet) so the UI can show
+// a "coming soon" state rather than an error.
+export async function fetchDishDoctor(token: string): Promise<DishDoctor | null> {
+  const resp = await fetch(`${API_BASE}/v1/dish-doctor`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (resp.status === 503) return null;
+  if (resp.status === 401) throw new Error("That token wasn't recognized");
+  if (!resp.ok) throw new Error("Dish Doctor service unavailable");
+  return (await resp.json()) as DishDoctor;
 }

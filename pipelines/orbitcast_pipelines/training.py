@@ -28,9 +28,9 @@ def _register_or_empty(
 def assemble_training_inputs(con: duckdb.DuckDBPyConnection, marts_dir: Path) -> int:
     """Build the ``labels`` table + feature-input tables from the marts.
 
-    Returns the number of label rows assembled. Currently sources labels from the
-    RIPE Atlas latency mart; M-Lab throughput labels join in once that ingest lands
-    (docs/mlab-setup.md). Returns 0 when no label mart exists yet.
+    Returns the number of label rows assembled. Sources RIPE Atlas latency, M-Lab
+    throughput+latency (once that ingest lands, docs/mlab-setup.md), and the
+    crowdsourced user-measurements mart. Returns 0 when no label mart exists yet.
     """
     marts_dir = Path(marts_dir)
     con.execute("DROP TABLE IF EXISTS labels")
@@ -57,6 +57,15 @@ def assemble_training_inputs(con: duckdb.DuckDBPyConnection, marts_dir: Path) ->
         con.execute(
             "INSERT INTO labels SELECT h3_cell, hour_utc, 'latency', rtt_ms_median, "
             f"'mlab', samples FROM read_parquet('{mlab}') WHERE rtt_ms_median IS NOT NULL"
+        )
+
+    # Crowdsourced readings (§4.3): already long-form (h3_cell, hour, target, value)
+    # and res-5, entering at the 'user' quality tier (weight 4.0, §6.2/§6.4).
+    user = marts_dir / "user_measurements_hourly.parquet"
+    if user.exists():
+        con.execute(
+            "INSERT INTO labels SELECT h3_cell, hour_utc, target, value_median, "
+            f"'user', samples FROM read_parquet('{user}')"
         )
 
     _register_or_empty(

@@ -13,6 +13,7 @@ dependencies = [
     "dagster>=1.8",
     "dagster-webserver>=1.8",
     "google-cloud-bigquery>=3.42.1",
+    "psycopg[binary]>=3.2",
 ]
 
 [build-system]

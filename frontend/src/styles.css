@@ -15,7 +15,21 @@ body {
 }
 .app { max-width: 640px; margin: 0 auto; padding: 3rem 1.25rem 4rem; }
 header h1 { margin: 0; font-size: 2.25rem; letter-spacing: -0.02em; }
-.tagline { color: var(--muted); margin: 0.35rem 0 2rem; }
+.home-link { color: inherit; text-decoration: none; }
+.tagline { color: var(--muted); margin: 0.35rem 0 0.75rem; }
+.site-nav { display: flex; gap: 1rem; margin-bottom: 2rem; }
+.site-nav a { color: var(--accent); text-decoration: none; font-size: 0.9rem; }
+.site-nav a:hover { text-decoration: underline; }
+
+/* Static pages (methodology, privacy) */
+.page { line-height: 1.6; }
+.page h1 { font-size: 1.6rem; margin: 0 0 0.5rem; }
+.page h2 { font-size: 1.15rem; margin: 2rem 0 0.5rem; }
+.page h3 { font-size: 1rem; margin: 1.25rem 0 0.4rem; }
+.page p, .page li { color: var(--fg); }
+.page ul { padding-left: 1.25rem; }
+.page li { margin-bottom: 0.6rem; }
+.page .muted { color: var(--muted); }
 .search { display: flex; gap: 0.5rem; }
 .search input {
   flex: 1; padding: 0.75rem 0.9rem; border-radius: 0.6rem;
@@ -84,3 +98,41 @@ header h1 { margin: 0; font-size: 2.25rem; letter-spacing: -0.02em; }
   background: linear-gradient(to right, rgb(37,52,148), rgb(46,196,182));
 }
 .map-legend .legend-note { margin-left: auto; opacity: 0.75; }
+
+/* Dish Doctor */
+.contribute { margin-top: 1.5rem; }
+.contribute h2 { font-size: 1rem; font-weight: 600; margin: 0 0 0.5rem; opacity: 0.85; }
+.contribute button {
+  margin-top: 0.5rem; padding: 0.6rem 1rem; border: 0; border-radius: 0.6rem;
+  background: var(--accent); color: #05121c; font-weight: 600; cursor: pointer;
+}
+.contribute button:disabled { opacity: 0.6; cursor: default; }
+
+.reporter-link { margin-top: 1.25rem; }
+.reporter-link h3 { font-size: 0.9rem; font-weight: 600; margin: 0 0 0.35rem; opacity: 0.85; }
+.reporter-link code { background: var(--panel); padding: 0.1rem 0.35rem; border-radius: 0.35rem; }
+.token-form { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.token-form input {
+  flex: 1; padding: 0.55rem 0.75rem; border: 1px solid #24304a; border-radius: 0.6rem;
+  background: var(--panel); color: inherit; font: inherit;
+}
+
+.dish-doctor-section { margin-top: 1.5rem; }
+.dish-doctor {
+  background: var(--panel); border: 1px solid #24304a; border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+}
+.dish-doctor h2 { font-size: 1rem; font-weight: 600; margin: 0 0 0.75rem; opacity: 0.85; }
+.dd-obstruction { font-size: 0.9rem; margin: 0 0 0.75rem; }
+.dd-verdict { font-size: 0.95rem; margin: 0 0 0.75rem; line-height: 1.5; }
+.dd-ok { color: #7ee0b0; }
+.dd-warn { color: #ffcf8a; }
+.dd-evidence {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.5rem; margin: 0;
+}
+.dd-evidence div {
+  background: #0d1322; border: 1px solid #24304a; border-radius: 0.5rem; padding: 0.5rem 0.75rem;
+}
+.dd-evidence dt { color: var(--muted); font-size: 0.75rem; margin-bottom: 0.15rem; }
+.dd-evidence dd { margin: 0; font-size: 0.9rem; font-weight: 600; }

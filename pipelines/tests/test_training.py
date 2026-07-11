@@ -75,6 +75,41 @@ def test_mlab_mart_becomes_throughput_and_latency_labels(tmp_path):
     assert by_target["dl_throughput"]["source_quality"] == 1.0  # mlab tier
 
 
+def test_user_mart_becomes_user_source_labels(tmp_path):
+    """Crowdsourced readings enter as long-form labels at the 'user' quality tier
+    (weight 4.0), for both latency and throughput targets."""
+    marts = tmp_path / "marts"
+    marts.mkdir()
+    warehouse.write_mart(
+        [
+            {
+                "h3_cell": _CELL,
+                "hour_utc": datetime(2026, 7, 6, 20, tzinfo=UTC),
+                "target": "latency",
+                "value_median": 55.0,
+                "samples": 30,
+            },
+            {
+                "h3_cell": _CELL,
+                "hour_utc": datetime(2026, 7, 6, 20, tzinfo=UTC),
+                "target": "dl_throughput",
+                "value_median": 90.0,
+                "samples": 12,
+            },
+        ],
+        marts / "user_measurements_hourly.parquet",
+    )
+
+    con = warehouse.connect(tmp_path / "w.duckdb")
+    assert assemble_training_inputs(con, marts) == 2
+
+    by_target = {r["target"]: r for r in build_training_matrix(con)}
+    assert by_target["latency"]["label"] == 55.0
+    assert by_target["dl_throughput"]["label"] == 90.0
+    assert by_target["latency"]["source_quality"] == 4.0  # user tier
+    assert by_target["dl_throughput"]["source_quality"] == 4.0
+
+
 def test_no_marts_yields_zero_labels(tmp_path):
     con = warehouse.connect(tmp_path / "w.duckdb")
     n = assemble_training_inputs(con, tmp_path / "marts")

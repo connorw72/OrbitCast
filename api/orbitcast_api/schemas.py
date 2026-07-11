@@ -106,6 +106,21 @@ class MeasurementBatchResult(BaseModel):
     accepted: int
 
 
+class DishDoctorResponse(BaseModel):
+    """Per-user underperformance verdict (§6.4). Interpretable evidence, not an
+    accusation: the dish's own median obstruction is surfaced first (F9), and the
+    verdict states which data basis it was judged against."""
+
+    verdict: str  # "insufficient_data" | "healthy" | "underperforming"
+    n_evaluated: int
+    below_q10_count: int
+    distinct_hours_below: int
+    p_value: float | None
+    effect_size_pct: float | None  # % median download below the model's expectation
+    median_obstruction_pct: float | None
+    basis: str  # "cell" | "region" | "latitude_prior"
+
+
 class SkyviewResponse(BaseModel):
     """Deterministic sky view for a location (no ML). Supply proxies only — we do
     not claim which satellite serves the user (F3)."""

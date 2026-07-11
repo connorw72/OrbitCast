@@ -36,10 +36,7 @@ def main() -> None:
 
     client = bigquery.Client()
     span = f"{start_day:02d}..{stop_day:02d}" if stop_day else "full month"
-    print(
-        f"mlab: querying NDT7 for Starlink AS{mlab.STARLINK_ASN}, "
-        f"{year}-{month:02d} ({span})..."
-    )
+    print(f"mlab: querying NDT7 for Starlink AS{mlab.STARLINK_ASN}, {year}-{month:02d} ({span})...")
     raw = mlab.ingest_mlab_month(client, year, month, start_day=start_day, stop_day=stop_day)
     rows = mlab.aggregate_mlab_to_labels(raw)
     marts = warehouse.marts_dir()

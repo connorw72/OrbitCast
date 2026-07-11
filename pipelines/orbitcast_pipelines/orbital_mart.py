@@ -21,17 +21,21 @@ from . import warehouse
 
 
 def label_cell_hours(marts_dir: Path) -> list[tuple[int, datetime]]:
-    """Distinct (h3_cell, hour_utc) pairs present in the label marts.
+    """Distinct (h3_cell, hour_utc) pairs present in the res-5 label marts.
 
-    Sources the RIPE Atlas latency mart (M-Lab joins in once ingested). Returns an
-    empty list when no label mart exists yet.
+    Unions the RIPE Atlas latency mart and the crowdsourced user-measurements mart
+    (both res-5, both carrying h3_cell + hour_utc) so orbital and weather features
+    are computed for user cells too. M-Lab joins in once ingested. Returns an empty
+    list when no label mart exists yet.
     """
-    path = Path(marts_dir) / "atlas_latency_hourly.parquet"
-    if not path.exists():
-        return []
+    marts_dir = Path(marts_dir)
     seen: dict[tuple[int, datetime], None] = {}
-    for row in warehouse.read_mart(path):
-        seen.setdefault((row["h3_cell"], row["hour_utc"]), None)
+    for name in ("atlas_latency_hourly.parquet", "user_measurements_hourly.parquet"):
+        path = marts_dir / name
+        if not path.exists():
+            continue
+        for row in warehouse.read_mart(path):
+            seen.setdefault((row["h3_cell"], row["hour_utc"]), None)
     return sorted(seen)
 
 

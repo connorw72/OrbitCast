@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import get_pool, init_schema
-from .routes import forecast, measurements, skyview, users
+from .routes import dish_doctor, forecast, measurements, probe, skyview, users
 from .routes import map as map_routes
 
 logger = logging.getLogger(__name__)
@@ -53,6 +53,8 @@ app.include_router(forecast.router)
 app.include_router(map_routes.router)
 app.include_router(users.router)
 app.include_router(measurements.router)
+app.include_router(dish_doctor.router)
+app.include_router(probe.router)
 
 
 @app.get("/healthz")

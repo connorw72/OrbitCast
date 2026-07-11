@@ -61,6 +61,20 @@ def atlas_latency(context: AssetExecutionContext) -> None:
     context.log.info(f"atlas_latency rows: {len(rows)} from {len(cells)} probes")
 
 
+@asset(description="Crowdsourced measurements (Postgres) -> hourly user labels (§4.3, §6.2).")
+def user_measurements(context: AssetExecutionContext) -> None:
+    from .user_measurements import build_user_measurements_mart
+
+    try:
+        mart = build_user_measurements_mart(warehouse.marts_dir())
+    except Exception:
+        # Training must not break when the serving DB is momentarily unreachable
+        # (F10) — degrade to the other label sources, like mlab_labels does.
+        context.log.warning("user_measurements skipped: serving store unreachable", exc_info=True)
+        return
+    context.log.info(f"user_measurements rows: {len(mart)}")
+
+
 @asset(
     deps=[ookla_context, atlas_latency],
     description="Active-cell registry — union of all label sources (§6.3).",
@@ -89,7 +103,7 @@ def weather_forecast(context: AssetExecutionContext) -> None:
 
 
 @asset(
-    deps=[atlas_latency],
+    deps=[atlas_latency, user_measurements],
     description="Hourly orbital supply features at label (cell,hour) pairs (§4.1, §5.5).",
 )
 def orbital_features(context: AssetExecutionContext) -> None:
@@ -103,7 +117,7 @@ def orbital_features(context: AssetExecutionContext) -> None:
 
 
 @asset(
-    deps=[atlas_latency],
+    deps=[atlas_latency, user_measurements],
     description="ERA5 historical precipitation features at label (cell,hour) pairs (§4.4).",
 )
 def weather_history(context: AssetExecutionContext) -> None:
@@ -114,7 +128,7 @@ def weather_history(context: AssetExecutionContext) -> None:
 
 
 @asset(
-    deps=[atlas_latency, ookla_context, orbital_features, weather_history],
+    deps=[atlas_latency, user_measurements, ookla_context, orbital_features, weather_history],
     description="Weekly LightGBM quantile training + promotion gate (§6.4); writes "
     "model artifacts + eval report, promotes only on eval pass.",
 )
@@ -138,7 +152,8 @@ atlas_job = define_asset_job("atlas_ingest", selection=[atlas_latency, active_ce
 mlab_job = define_asset_job("mlab_ingest", selection=[mlab_labels])
 ookla_job = define_asset_job("ookla_ingest", selection=[ookla_context])
 train_job = define_asset_job(
-    "train_models", selection=[orbital_features, weather_history, train_models]
+    "train_models",
+    selection=[user_measurements, orbital_features, weather_history, train_models],
 )
 
 defs = Definitions(
@@ -146,6 +161,7 @@ defs = Definitions(
         celestrak_gp,
         ookla_context,
         atlas_latency,
+        user_measurements,
         active_cell_registry,
         mlab_labels,
         weather_forecast,

@@ -10,11 +10,15 @@ from collections.abc import Sequence
 
 import numpy as np
 
+# Every metric coerces via np.asarray, so plain sequences and numpy arrays (e.g.
+# booster predict output) are equally welcome.
+type FloatVector = Sequence[float] | np.ndarray
+
 # Empirical coverage the q10-q90 band must fall within to count as calibrated.
 COVERAGE_BOUNDS: tuple[float, float] = (0.78, 0.82)
 
 
-def pinball_loss(y_true: Sequence[float], y_pred: Sequence[float], quantile: float) -> float:
+def pinball_loss(y_true: FloatVector, y_pred: FloatVector, quantile: float) -> float:
     """Mean pinball (quantile) loss for a single quantile level."""
     yt = np.asarray(y_true, dtype=float)
     yp = np.asarray(y_pred, dtype=float)
@@ -23,7 +27,7 @@ def pinball_loss(y_true: Sequence[float], y_pred: Sequence[float], quantile: flo
     return float(loss.mean())
 
 
-def coverage(y_true: Sequence[float], lower: Sequence[float], upper: Sequence[float]) -> float:
+def coverage(y_true: FloatVector, lower: FloatVector, upper: FloatVector) -> float:
     """Fraction of observations falling within the inclusive [lower, upper] band."""
     yt = np.asarray(y_true, dtype=float)
     lo = np.asarray(lower, dtype=float)
@@ -32,7 +36,7 @@ def coverage(y_true: Sequence[float], lower: Sequence[float], upper: Sequence[fl
     return float(within.mean())
 
 
-def mae(y_true: Sequence[float], y_pred: Sequence[float]) -> float:
+def mae(y_true: FloatVector, y_pred: FloatVector) -> float:
     """Mean absolute error."""
     yt = np.asarray(y_true, dtype=float)
     yp = np.asarray(y_pred, dtype=float)
@@ -40,9 +44,9 @@ def mae(y_true: Sequence[float], y_pred: Sequence[float]) -> float:
 
 
 def conformal_offset(
-    y_true: Sequence[float],
-    lower: Sequence[float],
-    upper: Sequence[float],
+    y_true: FloatVector,
+    lower: FloatVector,
+    upper: FloatVector,
     target_coverage: float = 0.8,
 ) -> float:
     """Split-conformal (CQR) offset that recalibrates a quantile band.

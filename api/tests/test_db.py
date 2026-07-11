@@ -10,8 +10,7 @@ def test_init_schema_creates_tables(pg_dsn: str, _schema: None) -> None:
     try:
         with pool.connection() as conn:
             rows = conn.execute(
-                "SELECT table_name FROM information_schema.tables "
-                "WHERE table_schema = 'public'"
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
             ).fetchall()
         tables = {r[0] for r in rows}
         assert {"users", "measurements"} <= tables

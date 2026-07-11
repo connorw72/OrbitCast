@@ -9,6 +9,8 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 
+import numpy as np
+
 from .metrics import (
     COVERAGE_BOUNDS,
     conformal_offset,
@@ -105,8 +107,8 @@ def fit_calibration(
         x, y, _w = to_arrays(calib_rows, target)
         if y.size == 0:
             continue
-        q10 = model.boosters[(target, 0.1)].predict(x)
-        q90 = model.boosters[(target, 0.9)].predict(x)
+        q10 = np.asarray(model.boosters[(target, 0.1)].predict(x), dtype=float)
+        q90 = np.asarray(model.boosters[(target, 0.9)].predict(x), dtype=float)
         offsets[target] = conformal_offset(y, q10, q90, target_coverage)
     return offsets
 

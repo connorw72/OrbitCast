@@ -5,8 +5,6 @@ data
 docs
 frontend
 infra
-ml
-pipelines
 **/__pycache__
 **/*.pyc
 .pytest_cache

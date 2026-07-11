@@ -114,11 +114,11 @@ class ForecastModel:
 
 def train_boosters(
     x: NDArray[np.float64],
-    targets: Mapping[str, Sequence[float]],
+    targets: Mapping[str, Sequence[float] | np.ndarray],
     quantiles: Sequence[float] = QUANTILES,
     params: Mapping | None = None,
     num_rounds: int = _NUM_ROUNDS,
-    sample_weights: Mapping[str, Sequence[float]] | None = None,
+    sample_weights: Mapping[str, Sequence[float] | np.ndarray] | None = None,
     feature_matrices: Mapping[str, NDArray[np.float64]] | None = None,
 ) -> ForecastModel:
     """Train one quantile booster per (target, quantile).

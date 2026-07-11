@@ -61,8 +61,7 @@ def query_for_month(
     stop_day = last_day if stop_day is None else stop_day
     if not (1 <= start_day <= stop_day <= last_day):
         raise ValueError(
-            f"invalid day range {start_day}..{stop_day} for {year}-{month:02d} "
-            f"(1..{last_day})"
+            f"invalid day range {start_day}..{stop_day} for {year}-{month:02d} (1..{last_day})"
         )
     start = f"{year}-{month:02d}-{start_day:02d}"
     stop = f"{year}-{month:02d}-{stop_day:02d}"

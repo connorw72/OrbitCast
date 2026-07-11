@@ -52,10 +52,22 @@ def test_query_covers_full_month_including_30th():
 
 def test_aggregate_maps_to_res4_and_weights_by_samples():
     rows = [
-        {"hour_utc": _HOUR, "lat": _LAT_A, "lon": _LON_A,
-         "dl_mbps_median": 100.0, "min_rtt_median": 30.0, "samples": 3},
-        {"hour_utc": _HOUR, "lat": _LAT_B, "lon": _LON_B,
-         "dl_mbps_median": 200.0, "min_rtt_median": 50.0, "samples": 1},
+        {
+            "hour_utc": _HOUR,
+            "lat": _LAT_A,
+            "lon": _LON_A,
+            "dl_mbps_median": 100.0,
+            "min_rtt_median": 30.0,
+            "samples": 3,
+        },
+        {
+            "hour_utc": _HOUR,
+            "lat": _LAT_B,
+            "lon": _LON_B,
+            "dl_mbps_median": 200.0,
+            "min_rtt_median": 50.0,
+            "samples": 1,
+        },
     ]
     out = aggregate_mlab_to_labels(rows)
 
@@ -72,12 +84,30 @@ def test_aggregate_maps_to_res4_and_weights_by_samples():
 def test_aggregate_separates_distinct_cells_and_hours():
     other_hour = datetime(2026, 6, 15, 21, tzinfo=UTC)
     rows = [
-        {"hour_utc": _HOUR, "lat": _LAT_A, "lon": _LON_A,
-         "dl_mbps_median": 100.0, "min_rtt_median": 30.0, "samples": 2},
-        {"hour_utc": other_hour, "lat": _LAT_A, "lon": _LON_A,
-         "dl_mbps_median": 120.0, "min_rtt_median": 33.0, "samples": 2},
-        {"hour_utc": _HOUR, "lat": _LAT_FAR, "lon": _LON_FAR,
-         "dl_mbps_median": 80.0, "min_rtt_median": 40.0, "samples": 5},
+        {
+            "hour_utc": _HOUR,
+            "lat": _LAT_A,
+            "lon": _LON_A,
+            "dl_mbps_median": 100.0,
+            "min_rtt_median": 30.0,
+            "samples": 2,
+        },
+        {
+            "hour_utc": other_hour,
+            "lat": _LAT_A,
+            "lon": _LON_A,
+            "dl_mbps_median": 120.0,
+            "min_rtt_median": 33.0,
+            "samples": 2,
+        },
+        {
+            "hour_utc": _HOUR,
+            "lat": _LAT_FAR,
+            "lon": _LON_FAR,
+            "dl_mbps_median": 80.0,
+            "min_rtt_median": 40.0,
+            "samples": 5,
+        },
     ]
     out = aggregate_mlab_to_labels(rows)
     assert len(out) == 3
@@ -87,10 +117,22 @@ def test_aggregate_separates_distinct_cells_and_hours():
 
 def test_aggregate_skips_missing_geo_and_zero_samples():
     rows = [
-        {"hour_utc": _HOUR, "lat": None, "lon": None,
-         "dl_mbps_median": 100.0, "min_rtt_median": 30.0, "samples": 4},
-        {"hour_utc": _HOUR, "lat": _LAT_A, "lon": _LON_A,
-         "dl_mbps_median": 100.0, "min_rtt_median": 30.0, "samples": 0},
+        {
+            "hour_utc": _HOUR,
+            "lat": None,
+            "lon": None,
+            "dl_mbps_median": 100.0,
+            "min_rtt_median": 30.0,
+            "samples": 4,
+        },
+        {
+            "hour_utc": _HOUR,
+            "lat": _LAT_A,
+            "lon": _LON_A,
+            "dl_mbps_median": 100.0,
+            "min_rtt_median": 30.0,
+            "samples": 0,
+        },
     ]
     assert aggregate_mlab_to_labels(rows) == []
 
@@ -98,8 +140,14 @@ def test_aggregate_skips_missing_geo_and_zero_samples():
 def test_aggregate_handles_missing_metric_independently():
     # A cell-hour with throughput but no RTT still yields a throughput label.
     rows = [
-        {"hour_utc": _HOUR, "lat": _LAT_A, "lon": _LON_A,
-         "dl_mbps_median": 100.0, "min_rtt_median": None, "samples": 4},
+        {
+            "hour_utc": _HOUR,
+            "lat": _LAT_A,
+            "lon": _LON_A,
+            "dl_mbps_median": 100.0,
+            "min_rtt_median": None,
+            "samples": 4,
+        },
     ]
     (row,) = aggregate_mlab_to_labels(rows)
     assert row["dl_mbps_median"] == 100.0
@@ -125,9 +173,17 @@ class _FakeBQClient:
 
 
 def test_ingest_mlab_month_runs_query_and_returns_dicts():
-    raw = [{"hour_utc": _HOUR, "lat": _LAT_A, "lon": _LON_A,
-            "dl_mbps_median": 100.0, "min_rtt_median": 30.0, "samples": 3}]
+    raw = [
+        {
+            "hour_utc": _HOUR,
+            "lat": _LAT_A,
+            "lon": _LON_A,
+            "dl_mbps_median": 100.0,
+            "min_rtt_median": 30.0,
+            "samples": 3,
+        }
+    ]
     client = _FakeBQClient(raw)
     out = ingest_mlab_month(client, 2026, 6)
-    assert "14593" in client.last_sql
+    assert client.last_sql is not None and "14593" in client.last_sql
     assert out == raw

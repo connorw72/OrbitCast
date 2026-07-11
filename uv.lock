@@ -14,6 +14,7 @@ members = [
     "orbitcast-core",
     "orbitcast-ml",
     "orbitcast-pipelines",
+    "orbitcast-reporter",
 ]
 
 [[package]]
@@ -769,6 +770,19 @@ wheels = [
 ]
 
 [[package]]
+name = "grpcio-reflection"
+version = "1.81.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "grpcio" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c0/53/7bd579cb35ea5895cb1ef38066e2336324432b3d3eaa21f52f6b94457c2d/grpcio_reflection-1.81.1.tar.gz", hash = "sha256:3d7160000f5fdd0e241f9b1a3d402f15ebcd5f281be105b374a025f38c6434a8", size = 19203, upload-time = "2026-06-11T12:58:47.865Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/10/5152fbc98f6b5b4f54cdf97c585d19fe962c265774692e446ad6b4f4950c/grpcio_reflection-1.81.1-py3-none-any.whl", hash = "sha256:d82fc4ac39dd5dcfd63e577075f6a68eac4a765e66a453914bbf57caf35665d0", size = 22906, upload-time = "2026-06-11T12:58:03.183Z" },
+]
+
+[[package]]
 name = "grpcio-status"
 version = "1.81.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1317,6 +1331,7 @@ dependencies = [
     { name = "httpx" },
     { name = "orbitcast-core" },
     { name = "orbitcast-ml" },
+    { name = "psycopg", extra = ["binary"] },
     { name = "pyarrow" },
 ]
 
@@ -1330,7 +1345,23 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "orbitcast-core", editable = "core" },
     { name = "orbitcast-ml", editable = "ml" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "pyarrow", specifier = ">=17" },
+]
+
+[[package]]
+name = "orbitcast-reporter"
+version = "0.1.0"
+source = { editable = "reporter" }
+dependencies = [
+    { name = "grpcio" },
+    { name = "yagrc" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "grpcio", specifier = ">=1.60" },
+    { name = "yagrc", specifier = ">=1.1" },
 ]
 
 [[package]]
@@ -2553,6 +2584,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/4f/ac12fda57a55068a094ec42851fb0a40e8489d8941863d517452de62e507/wrapt-2.2.2-cp314-cp314t-win_amd64.whl", hash = "sha256:d09db0f7e8357060d3c38fc22a018aba683a796bf184360fd1a58f6fc180dc77", size = 82462, upload-time = "2026-06-20T23:49:21.631Z" },
     { url = "https://files.pythonhosted.org/packages/48/a7/df732dac86d9b2027c56bd163dbc883e037b16c3469614752e148d219c61/wrapt-2.2.2-cp314-cp314t-win_arm64.whl", hash = "sha256:f32fe639c39561ccc187bcae17e9271be0eb45f1c2952510d2f29b33ab577347", size = 81182, upload-time = "2026-06-20T23:49:23.199Z" },
     { url = "https://files.pythonhosted.org/packages/6e/d2/6317eb6d4554855bbf12d61857774af34747bf88a42c19bf306de67e2fa3/wrapt-2.2.2-py3-none-any.whl", hash = "sha256:5bad217350f19ce99ca5b5e71d406765ea86fe541628426772b657375ee1c048", size = 61460, upload-time = "2026-06-20T23:49:42.966Z" },
+]
+
+[[package]]
+name = "yagrc"
+version = "1.1.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "grpcio" },
+    { name = "grpcio-reflection" },
+    { name = "protobuf" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7c/a6/0385c6f4b18d809e64539e294eb79b194efadee28ff00bf38d79afde2977/yagrc-1.1.3-py3-none-any.whl", hash = "sha256:4f69ae74de7889d8a3f36a61dbedfe9e0b3cca109953623cfe788ad07f5f0697", size = 18057, upload-time = "2026-03-22T20:58:34.869Z" },
 ]
 
 [[package]]

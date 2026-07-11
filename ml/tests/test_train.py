@@ -58,9 +58,7 @@ def test_fit_calibration_reaches_target_coverage_on_calibration_set():
     calibrated = ForecastModel(model.boosters, model.feature_names, calibration=offsets)
     cx = to_arrays(calib_rows, "latency")[0]
     preds = calibrated.predict(cx)
-    cov = coverage(
-        [r["label"] for r in calib_rows], preds["latency"][0.1], preds["latency"][0.9]
-    )
+    cov = coverage([r["label"] for r in calib_rows], preds["latency"][0.1], preds["latency"][0.9])
     assert cov >= 0.8
 
 

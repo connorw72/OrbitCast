@@ -52,3 +52,11 @@ jobs:
           tags: |
             ghcr.io/connorw72/orbitcast-api:latest
             ghcr.io/connorw72/orbitcast-api:${{ github.sha }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: reporter
+          platforms: linux/arm64,linux/amd64
+          push: true
+          tags: |
+            ghcr.io/connorw72/orbitcast-reporter:latest
+            ghcr.io/connorw72/orbitcast-reporter:${{ github.sha }}

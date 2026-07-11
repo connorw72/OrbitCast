@@ -1,16 +1,25 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  cellHex,
+  fetchDishDoctor,
   fetchForecast,
   fetchMap,
   fetchSkyview,
   geocode,
+  mintUser,
+  submitMeasurements,
+  type DishDoctor as DishDoctorData,
   type Forecast,
   type RegionMap as RegionMapData,
   type Skyview,
 } from "./api";
 import { secondsToReconfig } from "./countdown";
+import { runBrowserProbe } from "./probe";
+import DishDoctor from "./DishDoctor";
 import ForecastChart from "./ForecastChart";
+import Methodology from "./Methodology";
+import Privacy from "./Privacy";
 import RegionMap from "./RegionMap";
 import "./styles.css";
 
@@ -20,16 +29,39 @@ const BASIS_LABEL: Record<string, string> = {
   latitude_prior: "based on a latitude-band prior (no local data yet)",
 };
 
+// Static-page routing on the URL hash (no router dependency for two pages, §7.4).
+// The dashboard keeps its state while a static page is shown, so navigating back
+// doesn't lose a looked-up location.
+function useHashRoute(): string {
+  const [hash, setHash] = useState(window.location.hash);
+  useEffect(() => {
+    const onChange = () => {
+      setHash(window.location.hash);
+      window.scrollTo(0, 0);
+    };
+    window.addEventListener("hashchange", onChange);
+    return () => window.removeEventListener("hashchange", onChange);
+  }, []);
+  return hash;
+}
+
 export default function App() {
+  const route = useHashRoute();
   const [query, setQuery] = useState("");
   const [place, setPlace] = useState<string | null>(null);
   const [data, setData] = useState<Skyview | null>(null);
   const [forecast, setForecast] = useState<Forecast | null>(null);
   const [regionMap, setRegionMap] = useState<RegionMapData | null>(null);
+  const [dishDoctor, setDishDoctor] = useState<DishDoctorData | null>(null);
   const [forecastPending, setForecastPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [remaining, setRemaining] = useState(0);
+  const [contributing, setContributing] = useState(false);
+  const [contribProgress, setContribProgress] = useState<number | null>(null);
+  const [contribMsg, setContribMsg] = useState<string | null>(null);
+  const [tokenInput, setTokenInput] = useState("");
+  const [tokenMsg, setTokenMsg] = useState<string | null>(null);
   const offsetRef = useRef(0); // server_time(ms) - client now(ms)
 
   async function onSubmit(e: React.FormEvent) {
@@ -87,16 +119,103 @@ export default function App() {
     return () => clearInterval(id);
   }, [data]);
 
+  // Dish Doctor only applies once the user is contributing their own readings:
+  // the anonymous token is written to localStorage by the browser-probe flow
+  // (below) or the dish reporter. Absent a token there is nothing to judge, so
+  // the card stays hidden rather than nagging first-time visitors.
+  const refreshDishDoctor = useCallback(() => {
+    const token = localStorage.getItem("orbitcast_token");
+    if (!token) return;
+    fetchDishDoctor(token)
+      .then(setDishDoctor)
+      .catch(() => setDishDoctor(null));
+  }, []);
+
+  useEffect(() => {
+    refreshDishDoctor();
+  }, [refreshDishDoctor]);
+
+  // Zero-install crowdsourcing (§4.3.2): run a ~15 s WebSocket latency probe,
+  // mint an anonymous token if we don't have one, and submit the samples tagged
+  // with the res-5 cell only (never coordinates, D12). Also unlocks the Dish
+  // Doctor card by writing the token it reads.
+  async function onContribute() {
+    if (!data) return;
+    setContributing(true);
+    setContribMsg(null);
+    setContribProgress(0);
+    try {
+      const samples = await runBrowserProbe((done, total) =>
+        setContribProgress(Math.round((done / total) * 100)),
+      );
+      let token = localStorage.getItem("orbitcast_token");
+      if (!token) {
+        token = await mintUser();
+        localStorage.setItem("orbitcast_token", token);
+      }
+      const accepted = await submitMeasurements(token, samples, data.lat, data.lon);
+      const sorted = [...samples].sort((a, b) => a.latency_ms - b.latency_ms);
+      const median = sorted[Math.floor(sorted.length / 2)].latency_ms;
+      setContribMsg(
+        `Thanks — ${accepted} readings contributed (median ${median.toFixed(0)} ms round-trip).`,
+      );
+      refreshDishDoctor();
+    } catch (err) {
+      setContribMsg(err instanceof Error ? err.message : "Contribution failed");
+    } finally {
+      setContributing(false);
+      setContribProgress(null);
+    }
+  }
+
+  // Reporter users (§4.3.1) mint their token in the reporter script, not the
+  // browser. Linking pastes it in: verify it against the Dish Doctor endpoint
+  // (a 401 means a typo'd token), then persist it under the same localStorage
+  // key the probe flow writes so both paths unlock the card identically.
+  async function onLinkToken(e: React.FormEvent) {
+    e.preventDefault();
+    const token = tokenInput.trim();
+    if (!token) return;
+    try {
+      const dd = await fetchDishDoctor(token);
+      localStorage.setItem("orbitcast_token", token);
+      setDishDoctor(dd);
+      setTokenInput("");
+      setTokenMsg(
+        dd
+          ? "Token linked — your verdict is below."
+          : "Token linked. Your verdict appears once a forecast model is live.",
+      );
+    } catch (err) {
+      setTokenMsg(err instanceof Error ? err.message : "Could not verify the token");
+    }
+  }
+
+  const staticPage =
+    route === "#/methodology" ? <Methodology /> : route === "#/privacy" ? <Privacy /> : null;
+
   return (
     <main className="app">
       <header>
-        <h1>OrbitCast</h1>
+        <h1>
+          <a href="#/" className="home-link">
+            OrbitCast
+          </a>
+        </h1>
         <p className="tagline">
           Starlink satellites overhead and the next link-reconfiguration instant,
           for any location.
         </p>
+        <nav className="site-nav">
+          <a href="#/">Dashboard</a>
+          <a href="#/methodology">Methodology</a>
+          <a href="#/privacy">Privacy</a>
+        </nav>
       </header>
 
+      {staticPage}
+
+      <div style={{ display: staticPage ? "none" : undefined }}>
       <form onSubmit={onSubmit} className="search">
         <input
           value={query}
@@ -174,6 +293,48 @@ export default function App() {
             </div>
           )}
 
+          <div className="contribute">
+            <h2>Help improve the forecast</h2>
+            <p className="muted">
+              Run a ~15-second anonymous latency test from your browser. Only your H3
+              cell (~250 km²) is sent — never your address, coordinates, or IP.
+            </p>
+            <button type="button" onClick={onContribute} disabled={contributing}>
+              {contributing
+                ? contribProgress != null
+                  ? `Measuring… ${contribProgress}%`
+                  : "Measuring…"
+                : "Contribute anonymous latency readings"}
+            </button>
+            {contribMsg && <p className="basis">{contribMsg}</p>}
+
+            <div className="reporter-link">
+              <h3>Running the dish reporter?</h3>
+              <p className="muted">
+                Point it at your cell <code>{cellHex(data.lat, data.lon)}</code> and paste
+                the token it printed to see your Dish Doctor verdict here.
+              </p>
+              <form onSubmit={onLinkToken} className="token-form">
+                <input
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  placeholder="Reporter token"
+                  aria-label="Reporter token"
+                />
+                <button type="submit" disabled={!tokenInput.trim()}>
+                  Link
+                </button>
+              </form>
+              {tokenMsg && <p className="basis">{tokenMsg}</p>}
+            </div>
+          </div>
+
+          {dishDoctor && (
+            <section className="dish-doctor-section">
+              <DishDoctor data={dishDoctor} />
+            </section>
+          )}
+
           <footer className="notes">
             <p>
               &ldquo;Satellites overhead&rdquo; counts Starlink satellites above the 25°
@@ -189,6 +350,7 @@ export default function App() {
           </footer>
         </section>
       )}
+      </div>
     </main>
   );
 }
