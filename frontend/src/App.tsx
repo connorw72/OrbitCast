@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, CheckCircle2, Copy, LocateFixed } from "lucide-react";
+import { AlertCircle, CheckCircle2, Copy, LocateFixed, MapPin } from "lucide-react";
 
 import {
   cellHex,
@@ -13,10 +13,11 @@ import {
   submitMeasurements,
   type DishDoctor as DishDoctorData,
   type Forecast,
-  type ForecastHour,
   type Place,
   type RegionMap as RegionMapData,
   type Skyview,
+  type Takeaways,
+  type TakeawayWindow,
 } from "./api";
 import { secondsToReconfig } from "./countdown";
 import { runBrowserProbe } from "./probe";
@@ -27,11 +28,18 @@ import Privacy from "./Privacy";
 import RegionMap from "./RegionMap";
 import "./styles.css";
 
-const BASIS_LABEL: Record<string, string> = {
-  cell: "based on real measurements from your area",
-  region: "your area is quiet, so this leans on measurements from the wider region",
-  latitude_prior:
-    "no measurements near you yet; this is how Starlink typically behaves at your latitude",
+// Plain confidence line — the primary provenance label on the verdict card
+// (replaces the old basis footnote as the thing a visitor actually reads).
+const CONFIDENCE_LINE: Record<string, string> = {
+  high: "High confidence — based on real measurements from your area.",
+  medium: "Medium confidence — your area is quiet, so this leans on the wider region.",
+  low: "Low confidence — few measurements near you yet; this is how Starlink typically behaves at your latitude.",
+};
+
+const VERDICT_STATUS: Record<string, string> = {
+  smooth: "looking smooth",
+  mixed: "mostly smooth",
+  rough: "rough patch ahead",
 };
 
 // Nominatim labels are exhaustive ("Austin, Travis County, Texas, United
@@ -114,6 +122,8 @@ export default function App() {
   const [tokenMsg, setTokenMsg] = useState<string | null>(null);
   const [lastPlace, setLastPlace] = useState<Place | null>(loadLastPlace);
   const [reshuffled, setReshuffled] = useState(false);
+  // Hovering/tapping a takeaway chip highlights its span on the chart.
+  const [highlightWin, setHighlightWin] = useState<TakeawayWindow | null>(null);
   const offsetRef = useRef(0); // server_time(ms) - client now(ms)
   const prevRemainingRef = useRef(Infinity);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -412,7 +422,7 @@ export default function App() {
       {data && (
         <section className="result">
           <p className="place">
-            <span className="loc-label">loc /</span>
+            <MapPin size={14} aria-hidden="true" className="loc-pin" />
             {place}
           </p>
 
@@ -450,22 +460,30 @@ export default function App() {
 
           <h2 className="sec-head">Your sky right now</h2>
           <div className="stats panel">
-            <Stat label="Satellites overhead" value={String(data.sats_visible)} />
+            <Stat
+              label="Satellites overhead"
+              value={String(data.sats_visible)}
+              hint="more choices means a steadier link"
+            />
             <Stat
               label="Highest satellite"
               value={data.max_elevation_deg != null ? `${data.max_elevation_deg.toFixed(0)}°` : "—"}
+              hint="higher clears trees and rooflines"
             />
             <Stat
               label="Closest satellite"
               value={data.min_range_km != null ? `${data.min_range_km.toFixed(0)} km` : "—"}
+              hint="nearer means a shorter round trip"
             />
             <Stat
               label="Rain right now"
               value={data.weather ? `${data.weather.precip_mm_h.toFixed(1)} mm/h` : "—"}
+              hint="heavy rain can absorb the signal"
             />
             <Stat
               label="Cloud cover"
               value={data.weather ? `${data.weather.cloud_cover_pct.toFixed(0)}%` : "—"}
+              hint="clouds alone rarely matter"
             />
           </div>
 
@@ -475,19 +493,20 @@ export default function App() {
             <h2 className="sec-head">Your next 48 hours</h2>
             {forecast ? (
               <>
-                <ForecastSummary horizon={forecast.horizon} />
-                <ForecastChart horizon={forecast.horizon} />
-                <p className="basis">
-                  {BASIS_LABEL[forecast.basis] ?? forecast.basis}
-                  {forecast.model_version ? ` (${modelFreshness(forecast.model_version)})` : ""}
-                </p>
+                <VerdictCard takeaways={forecast.takeaways} onHover={setHighlightWin} />
+                <ForecastChart
+                  horizon={forecast.horizon}
+                  windows={forecast.takeaways.windows}
+                  highlight={highlightWin}
+                />
+                {forecast.model_version && (
+                  <p className="basis">{modelFreshness(forecast.model_version)}</p>
+                )}
               </>
             ) : forecastPending ? (
               <>
                 <div className="skeleton chart-skeleton" aria-hidden="true" />
-                <p className="muted skeleton-note">
-                  Crunching your forecast… the first load can take a little while.
-                </p>
+                <p className="muted skeleton-note">Pulling your forecast…</p>
               </>
             ) : (
               <p className="muted">
@@ -685,41 +704,70 @@ function SkyGauge({ elevationDeg }: { elevationDeg: number }) {
   );
 }
 
-// One plain-English sentence on top of the chart: the calmest stretch in the
-// next 48 h (lowest expected median latency over a 3-hour window) and a heads-up
-// if rain is coming. Derived entirely from the forecast payload — it phrases the
-// model's own numbers, it doesn't add claims.
-function ForecastSummary({ horizon }: { horizon: ForecastHour[] }) {
-  const series = horizon.filter((h) => h.latency != null);
-  if (series.length < 6) return null;
+// "Fri 7 PM–11 PM" in the visitor's local time. Window ends are exclusive, so
+// the end reads as the hour the window closes.
+function fmtWindowRange(startIso: string, endIso: string): string {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  const day = start.toLocaleString(undefined, { weekday: "short" });
+  const from = start.toLocaleString(undefined, { hour: "numeric" });
+  const to = end.toLocaleString(undefined, { hour: "numeric" });
+  return `${day} ${from}–${to}`;
+}
 
-  const fmtDayHour = (d: Date) =>
-    d.toLocaleString(undefined, { weekday: "short", hour: "numeric" });
-  const fmtHour = (d: Date) => d.toLocaleString(undefined, { hour: "numeric" });
+function chipText(w: TakeawayWindow): string {
+  const range = fmtWindowRange(w.start, w.end);
+  if (w.kind === "best") return `Best window: ${range}`;
+  if (w.kind === "rain") return `${range} · rain may slow things`;
+  return `${range} · busy stretch · ${w.detail}`;
+}
 
-  let bestStart = 0;
-  let bestScore = Infinity;
-  for (let i = 0; i + 3 <= series.length; i++) {
-    const score =
-      series[i].latency!.q50 + series[i + 1].latency!.q50 + series[i + 2].latency!.q50;
-    if (score < bestScore) {
-      bestScore = score;
-      bestStart = i;
-    }
-  }
-  const windowStart = new Date(series[bestStart].hour);
-  const windowEnd = new Date(Date.parse(series[bestStart + 2].hour) + 3_600_000);
-
-  const firstRain = series.find((h) => h.weather.precip_mm_h > 0);
-
+// The verdict card leads the forecast section (design spec Part 3): one
+// headline in display type, a plain confidence line as the primary provenance
+// label, and one chip per takeaway window. Hover/tap highlights the span on the
+// chart below. All phrasing comes from the server; this renders it.
+function VerdictCard({
+  takeaways,
+  onHover,
+}: {
+  takeaways: Takeaways;
+  onHover: (w: TakeawayWindow | null) => void;
+}) {
+  const [pinned, setPinned] = useState<TakeawayWindow | null>(null);
   return (
-    <p className="forecast-summary">
-      Calmest stretch ahead: <strong>{fmtDayHour(windowStart)}–{fmtHour(windowEnd)}</strong>{" "}
-      your time, if you have something latency-sensitive to plan.
-      {firstRain
-        ? ` Rain expected around ${fmtDayHour(new Date(firstRain.hour))}, so things may get a little choppy.`
-        : " No rain in sight for the next two days."}
-    </p>
+    <div className={`verdict-card panel verdict-${takeaways.verdict}`}>
+      <p className="verdict-status">
+        <span className="verdict-dot" aria-hidden="true" />
+        {VERDICT_STATUS[takeaways.verdict] ?? takeaways.verdict}
+      </p>
+      <p className="verdict-headline">{takeaways.headline}</p>
+      <p className="verdict-confidence">
+        {CONFIDENCE_LINE[takeaways.confidence] ?? takeaways.confidence}
+      </p>
+      {takeaways.windows.length > 0 && (
+        <div className="window-chips">
+          {takeaways.windows.map((w) => (
+            <button
+              key={`${w.kind}-${w.start}`}
+              type="button"
+              className={`chip chip-${w.kind}`}
+              title={w.detail}
+              onMouseEnter={() => onHover(w)}
+              onMouseLeave={() => onHover(pinned)}
+              onFocus={() => onHover(w)}
+              onBlur={() => onHover(pinned)}
+              onClick={() => {
+                const next = pinned === w ? null : w;
+                setPinned(next);
+                onHover(next);
+              }}
+            >
+              {chipText(w)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -743,11 +791,12 @@ function CopyCell({ value }: { value: string }) {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="stat">
       <span className="stat-label">{label}</span>
       <span className="stat-value">{value}</span>
+      {hint && <span className="stat-hint">{hint}</span>}
     </div>
   );
 }

@@ -278,13 +278,10 @@ button:disabled { cursor: default; }
   margin: var(--space-6) 0 0;
   font-size: 0.95rem;
 }
-.place .loc-label {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+.place .loc-pin {
   color: var(--fg-muted);
   margin-right: var(--space-2);
+  vertical-align: -2px;
 }
 
 /* ---------- countdown (the centerpiece) ---------- */
@@ -388,6 +385,12 @@ button:disabled { cursor: default; }
 }
 .stat:last-child { border-right: 0; }
 .stat-label { color: var(--fg-muted); order: 0; }
+.stat-hint {
+  order: 2;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--fg-muted);
+}
 .stat-value {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -434,17 +437,66 @@ button:disabled { cursor: default; }
 
 /* ---------- 48 h forecast chart ---------- */
 
-/* plain-English readout above the chart: calm window + rain heads-up */
-.forecast-summary {
-  font-size: 0.9rem;
-  line-height: 1.55;
-  color: var(--fg);
-  margin: 0 0 var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border-left: 2px solid var(--amber);
-  background: var(--amber-dim);
+/* verdict card: the takeaway leads the forecast section (design spec Part 3).
+   Status color rides a per-verdict custom property; everything else is tokens. */
+.verdict-card {
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+  border-left: 2px solid var(--verdict-color, var(--amber));
 }
-.forecast-summary strong { font-variant-numeric: tabular-nums; }
+.verdict-smooth { --verdict-color: var(--live); }
+.verdict-mixed { --verdict-color: var(--amber); }
+.verdict-rough { --verdict-color: var(--danger); }
+.verdict-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--verdict-color);
+}
+.verdict-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--verdict-color);
+}
+.verdict-headline {
+  margin: 0 0 var(--space-2);
+  font-size: 1.3rem;
+  line-height: 1.35;
+  font-weight: 600;
+  text-wrap: balance;
+}
+.verdict-confidence { margin: 0; font-size: 0.85rem; color: var(--fg-muted); }
+
+/* one chip per takeaway window; hover/tap highlights the span on the chart */
+.window-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.chip {
+  min-height: 30px;
+  padding: var(--space-1) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--fg);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease);
+}
+.chip:hover,
+.chip:focus-visible { border-color: var(--amber); }
+.chip-congestion { border-left: 2px solid var(--danger); }
+.chip-rain { border-left: 2px solid var(--rain); }
+.chip-best { border-left: 2px solid var(--live); }
 
 .forecast-chart-card { padding: var(--space-4) var(--space-4) var(--space-2); }
 
@@ -480,6 +532,11 @@ button:disabled { cursor: default; }
 .forecast-chart .median { stroke: var(--amber); stroke-width: 1.5; }
 .forecast-chart .rain-band { fill: var(--rain); fill-opacity: 0.16; }
 .forecast-chart .night-band { fill: var(--night); }
+/* takeaway spans: busy stretches read hotter than rain, and the chip being
+   hovered/pinned in the verdict card lights its span */
+.forecast-chart .congestion-band { fill: var(--danger); fill-opacity: 0.1; }
+.forecast-chart .congestion-band.notable { fill-opacity: 0.18; }
+.forecast-chart .highlight-band { fill: var(--amber); fill-opacity: 0.14; }
 .forecast-chart .day-line { stroke: var(--fg-muted); stroke-width: 1; opacity: 0.45; }
 .forecast-chart .day-label {
   fill: var(--fg-muted);
@@ -521,6 +578,12 @@ button:disabled { cursor: default; }
 .chart-legend .swatch.median-key { height: 2px; background: var(--amber); opacity: 1; }
 .chart-legend .swatch.rain-key { background: var(--rain); opacity: 0.45; }
 .chart-legend .swatch.night-key { background: var(--night); border: 1px solid var(--hairline); }
+.chart-legend .swatch.congestion-key { background: var(--danger); opacity: 0.35; }
+.chart-caption {
+  margin: var(--space-2) 0 0;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}
 
 .basis { font-size: 0.85rem; color: var(--fg-muted); margin-top: var(--space-2); }
 .muted { color: var(--fg-muted); font-size: 0.9rem; }

@@ -88,6 +88,25 @@ export interface ForecastHour {
   weather: { precip_mm_h: number };
 }
 
+// One concrete window on the horizon (server-phrased; the UI only renders).
+// `end` is exclusive; `severity` applies to congestion/rain only.
+export interface TakeawayWindow {
+  kind: "congestion" | "rain" | "best";
+  start: string;
+  end: string;
+  severity?: "mild" | "notable" | null;
+  detail: string;
+}
+
+// Verdict-first translation of the horizon — the server is the single source of
+// phrasing, so headlines stay consistent with the model's honesty rules.
+export interface Takeaways {
+  verdict: "smooth" | "mixed" | "rough";
+  headline: string;
+  confidence: "high" | "medium" | "low";
+  windows: TakeawayWindow[];
+}
+
 export interface Forecast {
   cell: number;
   lat: number;
@@ -95,6 +114,7 @@ export interface Forecast {
   generated_at: string;
   model_version: string | null;
   basis: string;
+  takeaways: Takeaways;
   horizon: ForecastHour[];
 }
 

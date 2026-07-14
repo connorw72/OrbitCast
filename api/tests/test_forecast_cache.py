@@ -11,7 +11,12 @@ from datetime import UTC, datetime, timedelta
 import h3
 import pytest
 from orbitcast_api import db
-from orbitcast_api.forecast_cache import select_bands, upsert_bands
+from orbitcast_api.forecast_cache import (
+    select_bands,
+    select_bands_many,
+    upsert_bands,
+    upsert_bands_many,
+)
 
 _CELL = h3.str_to_int(h3.latlng_to_cell(52.28, 8.05, 5))
 _H0 = datetime(2026, 7, 13, 12, tzinfo=UTC)
@@ -80,3 +85,16 @@ def test_select_covers_only_requested_hours(conn):
     upsert_bands(conn, _CELL, "v1", [_entry(h) for h in hours[:2]])
     cached = select_bands(conn, _CELL, hours, "v1")
     assert set(cached) == set(hours[:2])
+
+
+def test_many_cells_roundtrip_one_hour(conn):
+    # The map path: one hour across thousands of cells must be one query each
+    # way, not a per-cell round trip (design spec Part 1b at map scale).
+    other = h3.str_to_int(h3.latlng_to_cell(-33.9, 151.2, 5))
+    upsert_bands_many(conn, "v1", [(_CELL, _entry(_H0)), (other, _entry(_H0, latency_q50=99.0))])
+
+    cached = select_bands_many(conn, [_CELL, other, 12345], _H0, "v1")
+    assert set(cached) == {_CELL, other}
+    assert cached[other]["latency"]["q50"] == 99.0
+    assert select_bands_many(conn, [_CELL, other], _H0, "v2") == {}
+    assert select_bands_many(conn, [], _H0, "v1") == {}

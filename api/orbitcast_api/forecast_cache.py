@@ -50,14 +50,43 @@ def select_bands(
     return out
 
 
+def select_bands_many(
+    conn: Connection, cells: Sequence[int], hour: datetime, model_version: str
+) -> dict[int, dict]:
+    """One hour across many cells (the map path) in a single query.
+
+    Returns ``{cell: {"basis", "latency": band|None, "dl": band|None}}`` for cells
+    with at least one metric row under the given model version.
+    """
+    if not cells:
+        return {}
+    rows = conn.execute(
+        "SELECT h3_cell, metric, q10, q50, q90, basis FROM forecast_cache"
+        " WHERE hour_utc = %s AND model_version = %s AND h3_cell = ANY(%s)",
+        (hour, model_version, list(cells)),
+    ).fetchall()
+    out: dict[int, dict] = {}
+    for h3_cell, metric, q10, q50, q90, basis in rows:
+        entry = out.setdefault(h3_cell, {"basis": basis, "latency": None, "dl": None})
+        entry[metric] = {"q10": q10, "q50": q50, "q90": q90}
+    return out
+
+
 def upsert_bands(conn: Connection, cell: int, model_version: str, payload: Sequence[dict]) -> None:
     """Write computed payload entries (assemble_payload shape) through to Postgres.
 
     One row per metric that has a band; None bands write nothing. Conflicts on
     (cell, hour, metric) overwrite — the newest computation wins.
     """
+    upsert_bands_many(conn, model_version, [(cell, entry) for entry in payload])
+
+
+def upsert_bands_many(
+    conn: Connection, model_version: str, items: Sequence[tuple[int, dict]]
+) -> None:
+    """Batched write-through of ``(cell, payload entry)`` pairs (one executemany)."""
     params = []
-    for entry in payload:
+    for cell, entry in items:
         hour = datetime.fromisoformat(entry["hour"])
         for metric in _METRICS:
             band = entry.get(metric)
@@ -102,5 +131,22 @@ def write_through(cell: int, model_version: str, payload: Sequence[dict]) -> Non
     try:
         with get_pool().connection(timeout=_POOL_TIMEOUT_S) as conn:
             upsert_bands(conn, cell, model_version, payload)
+    except Exception as exc:
+        log.warning("forecast_cache write skipped: %s", exc)
+
+
+def read_cached_many(cells: Sequence[int], hour: datetime, model_version: str) -> dict[int, dict]:
+    try:
+        with get_pool().connection(timeout=_POOL_TIMEOUT_S) as conn:
+            return select_bands_many(conn, cells, hour, model_version)
+    except Exception as exc:
+        log.warning("forecast_cache read unavailable, serving uncached: %s", exc)
+        return {}
+
+
+def write_through_many(model_version: str, items: Sequence[tuple[int, dict]]) -> None:
+    try:
+        with get_pool().connection(timeout=_POOL_TIMEOUT_S) as conn:
+            upsert_bands_many(conn, model_version, items)
     except Exception as exc:
         log.warning("forecast_cache write skipped: %s", exc)

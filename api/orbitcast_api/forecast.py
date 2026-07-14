@@ -96,6 +96,43 @@ def resolve_median(cell: int, marts_dir: Path) -> tuple[float, Basis]:
         return float("nan"), "latitude_prior"
 
 
+def weather_hour_index(marts_dir: Path) -> dict[tuple[int, datetime], float]:
+    """(cell, hour) -> precip from the precomputed active-cell weather mart (§5.3).
+
+    The map path serves thousands of cells; their weather comes from the mart the
+    weather_refresh job writes, never per-cell HTTP at request time. Hours missing
+    from the mart read as no-precip via ``.get`` at the call site."""
+    return _mart_index(marts_dir / "weather_features.parquet", "weather_hour", _build_weather_hour)
+
+
+def _build_weather_hour(rows: list[dict]) -> dict[tuple[int, datetime], float]:
+    return {
+        (int(r["h3_cell"]), _as_utc(r["hour_utc"])): float(r["precip_mm_h"] or 0.0) for r in rows
+    }
+
+
+def orbital_hour_index(marts_dir: Path) -> dict[tuple[int, datetime], tuple[float, float]]:
+    """(cell, hour) -> (sats_visible, max_elevation) from the precomputed mart
+    (§5.3: hourly aggregates for active cells). Missing hours read as NaN features
+    at the call site — the model treats them as missing, not zero."""
+    return _mart_index(marts_dir / "orbital_features.parquet", "orbital_hour", _build_orbital_hour)
+
+
+def _build_orbital_hour(rows: list[dict]) -> dict[tuple[int, datetime], tuple[float, float]]:
+    return {
+        (int(r["h3_cell"]), _as_utc(r["hour_utc"])): (
+            float(r["sats_visible"]),
+            float(r["max_elevation_deg"]) if r["max_elevation_deg"] is not None else float("nan"),
+        )
+        for r in rows
+    }
+
+
+def _as_utc(ts: datetime) -> datetime:
+    """Marts store naive-UTC timestamps (DuckDB TIMESTAMP); serving keys are aware."""
+    return ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts.astimezone(UTC)
+
+
 def _build_stats_index(rows: list[dict]) -> dict[int, CellStat]:
     return {r["h3_cell"]: CellStat(median=float(r["median"]), hours=int(r["hours"])) for r in rows}
 

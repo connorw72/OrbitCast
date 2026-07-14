@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 
-import type { Band, ForecastHour } from "./api";
+import type { Band, ForecastHour, TakeawayWindow } from "./api";
 
 // Inline SVG 48h forecast chart (no chart dependency — keeps the static bundle
 // self-contained). A latency/download toggle picks the plotted band; both come
@@ -25,9 +25,13 @@ type ChartHour = ForecastHour & { band: Band };
 
 interface Props {
   horizon: ForecastHour[];
+  // Takeaway windows shade their spans (congestion distinct from rain);
+  // `highlight` is the chip currently hovered/pinned in the verdict card.
+  windows?: TakeawayWindow[];
+  highlight?: TakeawayWindow | null;
 }
 
-export default function ForecastChart({ horizon }: Props) {
+export default function ForecastChart({ horizon, windows = [], highlight = null }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
@@ -77,6 +81,28 @@ export default function ForecastChart({ horizon }: Props) {
   const rain = series
     .map((h, i) => ({ i, mm: h.weather.precip_mm_h }))
     .filter((r) => r.mm > 0);
+
+  // Takeaway-window spans in chart x-space. Window bounds are ISO hours with an
+  // exclusive end; a span covers the plotted hours inside [start, end).
+  function windowSpan(w: TakeawayWindow): { x0: number; x1: number } | null {
+    const t0 = Date.parse(w.start);
+    const t1 = Date.parse(w.end);
+    const idx = series
+      .map((h, i) => ({ t: Date.parse(h.hour), i }))
+      .filter(({ t }) => t >= t0 && t < t1)
+      .map(({ i }) => i);
+    if (idx.length === 0) return null;
+    return {
+      x0: Math.max(PAD.left, x(idx[0]) - colW / 2),
+      x1: Math.min(W - PAD.right, x(idx[idx.length - 1]) + colW / 2),
+    };
+  }
+
+  const congestionSpans = windows
+    .filter((w) => w.kind === "congestion")
+    .map((w) => ({ w, span: windowSpan(w) }))
+    .filter((s): s is { w: TakeawayWindow; span: { x0: number; x1: number } } => s.span != null);
+  const highlightSpan = highlight ? windowSpan(highlight) : null;
 
   // Night tint (local 21:00–06:00) plus a hairline + weekday label at each local
   // midnight — orients "the nightly hump" and makes 48 hours scannable by day.
@@ -167,6 +193,28 @@ export default function ForecastChart({ horizon }: Props) {
           />
         ))}
 
+        {congestionSpans.map(({ w, span }) => (
+          <rect
+            key={`cong-${w.start}`}
+            x={span.x0}
+            y={PAD.top}
+            width={span.x1 - span.x0}
+            height={innerH}
+            className={`congestion-band${w.severity === "notable" ? " notable" : ""}`}
+          />
+        ))}
+
+        {highlightSpan && (
+          <rect
+            x={highlightSpan.x0}
+            y={PAD.top}
+            width={highlightSpan.x1 - highlightSpan.x0}
+            height={innerH}
+            className="highlight-band"
+            pointerEvents="none"
+          />
+        )}
+
         {yTicks.map((v) => (
           <g key={`y-${v}`}>
             <line x1={PAD.left} x2={W - PAD.right} y1={y(v)} y2={y(v)} className="grid" />
@@ -235,7 +283,7 @@ export default function ForecastChart({ horizon }: Props) {
 
       <div className="chart-legend">
         <span className="key">
-          <span className="swatch band-key" aria-hidden="true" /> likely range (80% of the time)
+          <span className="swatch band-key" aria-hidden="true" /> likely range
         </span>
         <span className="key">
           <span className="swatch median-key" aria-hidden="true" /> typical
@@ -250,7 +298,15 @@ export default function ForecastChart({ horizon }: Props) {
             <span className="swatch rain-key" aria-hidden="true" /> rain expected
           </span>
         )}
+        {congestionSpans.length > 0 && (
+          <span className="key">
+            <span className="swatch congestion-key" aria-hidden="true" /> busy stretch
+          </span>
+        )}
       </div>
+      <p className="chart-caption">
+        The shaded band is where we expect 8 of 10 hours to land; the line is the typical hour.
+      </p>
     </div>
   );
 }

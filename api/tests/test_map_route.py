@@ -42,15 +42,14 @@ def _two_children_of_one_parent() -> tuple[int, int, int]:
 
 
 def _stub_providers(monkeypatch, cached=None):
-    monkeypatch.setattr(mp, "get_satellites", lambda: [])
-    monkeypatch.setattr(mp, "get_forecast_series_cached", lambda cell, lat, lon, now: {})
-    monkeypatch.setattr(mp, "get_orbital_series", lambda sats, lat, lon, hours: {})
+    monkeypatch.setattr(mp, "weather_hour_index", lambda marts: {})
+    monkeypatch.setattr(mp, "orbital_hour_index", lambda marts: {})
     monkeypatch.setattr(mp, "resolve_ookla", lambda cell, marts: (float("nan"), float("nan")))
     monkeypatch.setattr(mp, "resolve_median", lambda cell, marts: (float("nan"), "latitude_prior"))
     monkeypatch.setattr(mp, "promoted_version", lambda _root: "vTEST")
-    monkeypatch.setattr(mp, "read_cached", lambda cell, hours, version: dict(cached or {}))
+    monkeypatch.setattr(mp, "read_cached_many", lambda cells, hour, version: dict(cached or {}))
     written: list = []
-    monkeypatch.setattr(mp, "write_through", lambda cell, version, payload: written.append(payload))
+    monkeypatch.setattr(mp, "write_through_many", lambda version, items: written.extend(items))
     return written
 
 
@@ -92,9 +91,8 @@ def test_map_serves_cached_cells_without_compute(monkeypatch):
     a, _b, parent = _two_children_of_one_parent()
     monkeypatch.setattr(mp, "load_promoted_model", lambda _root: _FakeModel())
     monkeypatch.setattr(mp, "active_map_cells", lambda marts: {a})
-    hour = mp._now().replace(minute=0, second=0, microsecond=0)
     cached = {
-        hour: {
+        a: {
             "basis": "cell",
             "latency": {"q10": 11.0, "q50": 22.0, "q90": 33.0},
             "dl": {"q10": 44.0, "q50": 55.0, "q90": 66.0},
@@ -105,8 +103,7 @@ def test_map_serves_cached_cells_without_compute(monkeypatch):
     def explode(*args, **kwargs):
         raise AssertionError("cached cell must not recompute")
 
-    monkeypatch.setattr(mp, "build_forecast", explode)
-    monkeypatch.setattr(mp, "get_orbital_series", explode)
+    monkeypatch.setattr(mp, "build_feature_matrix", explode)
 
     resp = client.get("/v1/map?res=4&metric=dl_q50")
     assert resp.status_code == 200

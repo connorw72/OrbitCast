@@ -10,23 +10,24 @@ posture used elsewhere pre-Postgres (§7.1).
 
 from datetime import UTC, datetime
 
+import numpy as np
 from fastapi import APIRouter, HTTPException, Query
-from orbitcast_core.spatial import cell_centroid
+from orbitcast_ml.forecast import build_feature_matrix
+from orbitcast_ml.models import QUANTILES
 
 from ..config import get_settings
 from ..forecast import (
-    build_forecast,
-    get_orbital_series,
+    _SERVE_SOURCE_QUALITY,
     load_promoted_model,
+    orbital_hour_index,
     promoted_version,
     resolve_median,
     resolve_ookla,
+    weather_hour_index,
 )
-from ..forecast_cache import read_cached, write_through
+from ..forecast_cache import read_cached_many, write_through_many
 from ..map import active_map_cells, aggregate_to_res, parse_metric
-from ..satellites import get_satellites
 from ..schemas import MapCell, MapResponse
-from ..weather import get_forecast_series_cached
 
 router = APIRouter()
 
@@ -60,38 +61,67 @@ def map_view(
     if cached is not None:
         return cached
 
-    # The map needs only the current hour per cell, and it reads through the same
-    # forecast_cache /v1/forecast fills (design spec Part 1b): a cell someone just
-    # looked at costs a btree hit here, and a cell computed here is already warm
-    # for their next /v1/forecast.
+    # The map needs only the current hour per cell, reading through the same
+    # forecast_cache /v1/forecast fills (design spec Part 1b) — but at thousands
+    # of active cells it must stay batched: one cache read, mart lookups for
+    # weather/orbital (the pipeline precomputes these per active cell, §5.3 —
+    # never per-cell HTTP or propagation here), one model predict, one write-back.
     hour = now.replace(minute=0, second=0, microsecond=0)
     version = promoted_version(settings.models_dir)
-    satellites = get_satellites()
-    per_cell: dict[int, tuple[float, str]] = {}
-    for cell in active_map_cells(settings.marts_dir):
-        cached = read_cached(cell, [hour], version) if version is not None else {}
-        entry = cached.get(hour)
-        if entry is None:
-            lat, lon = cell_centroid(cell)
-            weather_series = get_forecast_series_cached(cell, lat, lon, now)
-            orbital = get_orbital_series(satellites, lat, lon, [hour])
+    cells = sorted(active_map_cells(settings.marts_dir))
+    cached = read_cached_many(cells, hour, version) if version is not None else {}
+    missing = [c for c in cells if c not in cached]
+
+    entries: dict[int, dict] = dict(cached)
+    if missing:
+        weather_idx = weather_hour_index(settings.marts_dir)
+        orbital_idx = orbital_hour_index(settings.marts_dir)
+        nan = float("nan")
+        matrices = []
+        metas: list[tuple[int, str, float]] = []
+        for cell in missing:
             baseline, devices = resolve_ookla(cell, settings.marts_dir)
             cell_median, basis = resolve_median(cell, settings.marts_dir)
-            payload = build_forecast(
-                cell,
-                now,
-                model,
-                weather_series=weather_series,
-                orbital_by_hour=orbital,
-                ookla_baseline=baseline,
-                ookla_devices=devices,
-                cell_median=cell_median,
-                basis=basis,
-                hours=[hour],
+            precip = weather_idx.get((cell, hour), 0.0)
+            orbital = orbital_idx.get((cell, hour), (nan, nan))
+            matrices.append(
+                build_feature_matrix(
+                    cell,
+                    [hour],
+                    precip_by_hour={hour: precip},
+                    orbital_by_hour={hour: orbital},
+                    terrestrial_baseline_mbps=baseline,
+                    devices=devices,
+                    cell_median=cell_median,
+                    source_quality=_SERVE_SOURCE_QUALITY,
+                )
             )
-            if version is not None:
-                write_through(cell, version, payload)
-            entry = payload[0]
+            metas.append((cell, basis, precip))
+        preds = model.predict(np.vstack(matrices))
+        q10, q50, q90 = QUANTILES
+
+        def band_at(pred_target: str, i: int) -> dict | None:
+            if pred_target not in preds:
+                return None
+            p = preds[pred_target]
+            return {"q10": float(p[q10][i]), "q50": float(p[q50][i]), "q90": float(p[q90][i])}
+
+        computed: list[tuple[int, dict]] = []
+        for i, (cell, basis, precip) in enumerate(metas):
+            entry = {
+                "hour": hour.isoformat(),
+                "basis": basis,
+                "latency": band_at("latency", i),
+                "dl": band_at("dl_throughput", i),
+                "weather": {"precip_mm_h": precip},
+            }
+            computed.append((cell, entry))
+            entries[cell] = entry
+        if version is not None:
+            write_through_many(version, computed)
+
+    per_cell: dict[int, tuple[float, str]] = {}
+    for cell, entry in entries.items():
         band = entry[target]
         if band is None:  # target has no labels yet (e.g. throughput pre-M-Lab)
             continue

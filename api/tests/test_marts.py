@@ -80,6 +80,42 @@ def test_mart_appearing_after_a_miss_is_picked_up(tmp_path):
     assert fc.resolve_ookla(_CELL, tmp_path) == (80.0, 40.0)
 
 
+def test_hourly_feature_indexes_read_the_pipeline_marts(tmp_path):
+    # The map serves weather/orbital features from the precomputed active-cell
+    # marts (§5.3) — never per-cell HTTP or per-cell propagation at request time.
+    hour = datetime(2026, 7, 13, 12, tzinfo=UTC)
+    naive = hour.replace(tzinfo=None)  # marts store naive-UTC timestamps
+    pq.write_table(
+        pa.table(
+            {
+                "h3_cell": [_CELL],
+                "hour_utc": [naive],
+                "precip_mm_h": [1.5],
+                "precip_lag_1h": [0.0],
+                "precip_forecast_3h": [0.5],
+            }
+        ),
+        str(tmp_path / "weather_features.parquet"),
+    )
+    pq.write_table(
+        pa.table(
+            {
+                "h3_cell": [_CELL],
+                "hour_utc": [naive],
+                "sats_visible": [42],
+                "max_elevation_deg": [71.5],
+            }
+        ),
+        str(tmp_path / "orbital_features.parquet"),
+    )
+
+    assert fc.weather_hour_index(tmp_path)[(_CELL, hour)] == 1.5
+    assert fc.orbital_hour_index(tmp_path)[(_CELL, hour)] == (42.0, 71.5)
+    # Missing marts read as empty indexes, not errors.
+    assert fc.weather_hour_index(tmp_path / "nope") == {}
+    assert fc.orbital_hour_index(tmp_path / "nope") == {}
+
+
 def test_resolve_median_memoizes_and_still_resolves_basis(tmp_path, monkeypatch):
     reads = _count_parquet_reads(monkeypatch)
     base = datetime(2026, 7, 13, tzinfo=UTC).timestamp()
