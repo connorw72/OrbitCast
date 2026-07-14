@@ -8,7 +8,7 @@ measurements.
 
 import statistics
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import h3
 from orbitcast_core.spatial import RESOLUTION
@@ -123,3 +123,23 @@ def fetch_ping_results(
         params["probe_ids"] = ",".join(str(p) for p in probe_ids)
     data = fetch(_RESULTS_URL.format(msm_id=msm_id), params)
     return data if isinstance(data, list) else data.get("results", [])
+
+
+def merge_hourly(existing: list[dict], new: list[dict], keep_days: int = 90) -> list[dict]:
+    """Merge a fresh daily pull into the existing hourly mart.
+
+    The daily asset must accumulate history, not clobber it — the fallback stats
+    (§6.3) and training's rolling median (§6.2) both need a trailing window. New
+    rows win (h3_cell, hour_utc) collisions (a re-pulled hour has more samples),
+    and rows older than ``keep_days`` before the newest merged hour are dropped so
+    the mart stays bounded.
+    """
+    by_key = {(r["h3_cell"], r["hour_utc"]): r for r in existing}
+    by_key.update({(r["h3_cell"], r["hour_utc"]): r for r in new})
+    rows = list(by_key.values())
+    if not rows:
+        return []
+    cutoff = max(r["hour_utc"] for r in rows) - timedelta(days=keep_days)
+    rows = [r for r in rows if r["hour_utc"] > cutoff]
+    rows.sort(key=lambda r: (r["h3_cell"], r["hour_utc"]))
+    return rows

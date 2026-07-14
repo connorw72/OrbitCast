@@ -57,8 +57,15 @@ def atlas_latency(context: AssetExecutionContext) -> None:
         if msm:
             results.extend(atlas.fetch_ping_results(msm, start, stop, probe_ids=[pid]))
     rows = atlas.aggregate_pings_to_hourly(results, cells)
-    warehouse.write_mart(rows, warehouse.marts_dir() / "atlas_latency_hourly.parquet")
-    context.log.info(f"atlas_latency rows: {len(rows)} from {len(cells)} probes")
+    # Merge into the existing mart: the fallback stats and the rolling-median
+    # training feature need a trailing window, not just the last 24 h.
+    mart_path = warehouse.marts_dir() / "atlas_latency_hourly.parquet"
+    existing = warehouse.read_mart(mart_path) if mart_path.exists() else []
+    merged = atlas.merge_hourly(existing, rows)
+    warehouse.write_mart(merged, mart_path)
+    context.log.info(
+        f"atlas_latency: {len(rows)} new rows from {len(cells)} probes; mart now {len(merged)}"
+    )
 
 
 @asset(description="Crowdsourced measurements (Postgres) -> hourly user labels (§4.3, §6.2).")
@@ -86,6 +93,21 @@ def active_cell_registry(context: AssetExecutionContext) -> None:
     registry = [{"h3_cell": c} for c in active_cells(ookla_rows, atlas_rows)]
     warehouse.write_mart(registry, marts / "active_cells.parquet")
     context.log.info(f"active cells: {len(registry)}")
+
+
+@asset(
+    deps=[atlas_latency],
+    description="Serving fallback marts: cell_label_stats + latitude_priors (§6.3).",
+)
+def fallback_stats(context: AssetExecutionContext) -> None:
+    from .fallback_marts import build_fallback_marts
+
+    con = warehouse.connect()
+    n_stats, n_priors = build_fallback_marts(con, warehouse.marts_dir())
+    if n_stats == 0:
+        context.log.warning("fallback_stats: no label marts yet, nothing written")
+    else:
+        context.log.info(f"fallback_stats: {n_stats} cell stats, {n_priors} latitude priors")
 
 
 @asset(description="M-Lab NDT monthly extract (DEFERRED — needs BigQuery creds, F2).")
@@ -148,7 +170,9 @@ def train_models(context: AssetExecutionContext) -> None:
 
 celestrak_job = define_asset_job("celestrak_refresh", selection=[celestrak_gp])
 weather_job = define_asset_job("weather_refresh", selection=[weather_forecast])
-atlas_job = define_asset_job("atlas_ingest", selection=[atlas_latency, active_cell_registry])
+atlas_job = define_asset_job(
+    "atlas_ingest", selection=[atlas_latency, active_cell_registry, fallback_stats]
+)
 mlab_job = define_asset_job("mlab_ingest", selection=[mlab_labels])
 ookla_job = define_asset_job("ookla_ingest", selection=[ookla_context])
 train_job = define_asset_job(
@@ -163,6 +187,7 @@ defs = Definitions(
         atlas_latency,
         user_measurements,
         active_cell_registry,
+        fallback_stats,
         mlab_labels,
         weather_forecast,
         orbital_features,

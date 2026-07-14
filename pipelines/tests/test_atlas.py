@@ -6,7 +6,7 @@ logic (cell mapping + hourly aggregation, loss-filtered) is tested here; the
 network fetch is injected so CI stays offline.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import h3
 from orbitcast_pipelines.atlas import aggregate_pings_to_hourly, probes_to_cells
@@ -51,3 +51,30 @@ def test_aggregate_pings_hourly_median_with_loss_and_unknown_filtered() -> None:
     key13 = (222, datetime(2026, 7, 4, 13, tzinfo=UTC))
     assert out[key13]["rtt_ms_median"] == 50.0
     assert all(cell != 999 for cell, _hour in out)
+
+
+def test_merge_hourly_keeps_history_prefers_new_and_trims_old() -> None:
+    # The daily asset must merge into the existing mart, not clobber it — the
+    # fallback stats need a rolling window of history (§6.2/§6.3).
+    from orbitcast_pipelines.atlas import merge_hourly
+
+    t = datetime(2026, 7, 4, 12, tzinfo=UTC)
+    ancient = {
+        "h3_cell": 111,
+        "hour_utc": t - timedelta(days=120),
+        "rtt_ms_median": 1.0,
+        "samples": 1,
+    }
+    kept = {"h3_cell": 111, "hour_utc": t - timedelta(days=10), "rtt_ms_median": 20.0, "samples": 2}
+    stale = {"h3_cell": 111, "hour_utc": t, "rtt_ms_median": 99.0, "samples": 1}
+    fresh = {"h3_cell": 111, "hour_utc": t, "rtt_ms_median": 25.0, "samples": 3}
+    other = {"h3_cell": 222, "hour_utc": t, "rtt_ms_median": 50.0, "samples": 1}
+
+    out = merge_hourly([ancient, kept, stale], [fresh, other], keep_days=90)
+
+    by_key = {(r["h3_cell"], r["hour_utc"]): r for r in out}
+    assert (111, t - timedelta(days=120)) not in by_key  # beyond the retention window
+    assert by_key[(111, t - timedelta(days=10))]["rtt_ms_median"] == 20.0
+    assert by_key[(111, t)]["rtt_ms_median"] == 25.0  # new row wins the collision
+    assert by_key[(222, t)]["rtt_ms_median"] == 50.0
+    assert len(out) == 3
