@@ -29,6 +29,27 @@ class ForecastHour(BaseModel):
     weather: dict
 
 
+class TakeawayWindow(BaseModel):
+    """One concrete window on the horizon (design spec Part 2): a congestion dip,
+    a rain-overlap dip, or the recommended best stretch. ``end`` is exclusive."""
+
+    kind: Literal["congestion", "rain", "best"]
+    start: str  # ISO-8601 UTC
+    end: str
+    severity: Literal["mild", "notable"] | None = None  # congestion/rain only
+    detail: str
+
+
+class Takeaways(BaseModel):
+    """Verdict-first translation of the horizon; the server is the single source
+    of phrasing and the frontend only renders (design spec Part 2)."""
+
+    verdict: Literal["smooth", "mixed", "rough"]
+    headline: str
+    confidence: Literal["high", "medium", "low"]
+    windows: list[TakeawayWindow]
+
+
 class ForecastResponse(BaseModel):
     """48 h latency + download-throughput forecast with uncertainty bands (§7.3)."""
 
@@ -38,6 +59,7 @@ class ForecastResponse(BaseModel):
     generated_at: datetime
     model_version: str | None
     basis: str  # the resolved fallback level for this cell
+    takeaways: Takeaways
     horizon: list[ForecastHour]
 
 

@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 from orbitcast_core.spatial import cell_centroid
+from orbitcast_ml.takeaways import compute_takeaways
 
 from ..config import get_settings
 from ..forecast import (
@@ -22,7 +23,7 @@ from ..forecast import (
 )
 from ..forecast_cache import read_cached, write_through
 from ..satellites import get_satellites
-from ..schemas import ForecastHour, ForecastResponse
+from ..schemas import ForecastHour, ForecastResponse, Takeaways
 from ..weather import get_forecast_series_cached
 
 router = APIRouter()
@@ -89,6 +90,16 @@ def forecast(cell: int) -> ForecastResponse:
                     "weather": {"precip_mm_h": float(weather_series.get(h, 0.0))},
                 }
             )
+    # The rolling median resolves from latency-dominated label marts (Atlas is the
+    # continuous source, §4.2b); no per-target dl median exists yet, so the dl
+    # congestion trigger stays off (NaN) until the stats mart carries one.
+    takeaways = compute_takeaways(
+        horizon,
+        latency_median=cell_median,
+        dl_median=float("nan"),
+        basis=basis,
+        lon=lon,
+    )
     return ForecastResponse(
         cell=cell,
         lat=lat,
@@ -96,5 +107,6 @@ def forecast(cell: int) -> ForecastResponse:
         generated_at=now,
         model_version=version,
         basis=basis,
+        takeaways=Takeaways.model_validate(takeaways),
         horizon=[ForecastHour.model_validate(h) for h in horizon],
     )

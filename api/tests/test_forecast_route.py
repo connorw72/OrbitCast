@@ -64,6 +64,12 @@ def test_forecast_returns_48h_payload(monkeypatch):
     assert first["latency"] == {"q10": 20.0, "q50": 30.0, "q90": 45.0}
     assert first["dl"] == {"q10": 80.0, "q50": 120.0, "q90": 150.0}
     assert "precip_mm_h" in first["weather"]
+    # Verdict-first payload (design spec Part 2): with latitude_prior basis and no
+    # rolling median there is no baseline, so confidence must be low, not invented.
+    takeaways = body["takeaways"]
+    assert takeaways["verdict"] in {"smooth", "mixed", "rough"}
+    assert takeaways["confidence"] == "low"
+    assert isinstance(takeaways["windows"], list) and takeaways["headline"]
 
 
 # --- forecast_cache read-through (design doc Part 1b) ---------------------------
