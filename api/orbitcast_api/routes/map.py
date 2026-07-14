@@ -18,15 +18,15 @@ from ..forecast import (
     build_forecast,
     get_orbital_series,
     load_promoted_model,
-    next_hours,
     promoted_version,
     resolve_median,
     resolve_ookla,
 )
+from ..forecast_cache import read_cached, write_through
 from ..map import active_map_cells, aggregate_to_res, parse_metric
 from ..satellites import get_satellites
 from ..schemas import MapCell, MapResponse
-from ..weather import get_forecast_series
+from ..weather import get_forecast_series_cached
 
 router = APIRouter()
 
@@ -60,30 +60,42 @@ def map_view(
     if cached is not None:
         return cached
 
-    hours = next_hours(now)
+    # The map needs only the current hour per cell, and it reads through the same
+    # forecast_cache /v1/forecast fills (design spec Part 1b): a cell someone just
+    # looked at costs a btree hit here, and a cell computed here is already warm
+    # for their next /v1/forecast.
+    hour = now.replace(minute=0, second=0, microsecond=0)
+    version = promoted_version(settings.models_dir)
     satellites = get_satellites()
     per_cell: dict[int, tuple[float, str]] = {}
     for cell in active_map_cells(settings.marts_dir):
-        lat, lon = cell_centroid(cell)
-        weather_series = get_forecast_series(lat, lon)
-        orbital = get_orbital_series(satellites, lat, lon, hours)
-        baseline, devices = resolve_ookla(cell, settings.marts_dir)
-        cell_median, basis = resolve_median(cell, settings.marts_dir)
-        horizon = build_forecast(
-            cell,
-            now,
-            model,
-            weather_series=weather_series,
-            orbital_by_hour=orbital,
-            ookla_baseline=baseline,
-            ookla_devices=devices,
-            cell_median=cell_median,
-            basis=basis,
-        )
-        band = horizon[0][target]
+        cached = read_cached(cell, [hour], version) if version is not None else {}
+        entry = cached.get(hour)
+        if entry is None:
+            lat, lon = cell_centroid(cell)
+            weather_series = get_forecast_series_cached(cell, lat, lon, now)
+            orbital = get_orbital_series(satellites, lat, lon, [hour])
+            baseline, devices = resolve_ookla(cell, settings.marts_dir)
+            cell_median, basis = resolve_median(cell, settings.marts_dir)
+            payload = build_forecast(
+                cell,
+                now,
+                model,
+                weather_series=weather_series,
+                orbital_by_hour=orbital,
+                ookla_baseline=baseline,
+                ookla_devices=devices,
+                cell_median=cell_median,
+                basis=basis,
+                hours=[hour],
+            )
+            if version is not None:
+                write_through(cell, version, payload)
+            entry = payload[0]
+        band = entry[target]
         if band is None:  # target has no labels yet (e.g. throughput pre-M-Lab)
             continue
-        per_cell[cell] = (float(band[quant]), basis)
+        per_cell[cell] = (float(band[quant]), entry["basis"])
 
     response = MapResponse(
         res=res,

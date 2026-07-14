@@ -6,7 +6,7 @@ independent of the oracle: a satellite straight up must read ~90 deg elevation a
 a slant range equal to its altitude.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import numpy as np
@@ -15,6 +15,7 @@ from orbitcast_core.orbital import (
     TERMINAL_MASK_DEG,
     satellites_from_gp,
     sky_view,
+    sky_view_series,
 )
 from sgp4 import exporter
 from skyfield.api import EarthSatellite, load, wgs84
@@ -107,6 +108,76 @@ def test_aggregation_matches_oracle_over_a_set() -> None:
     if visible.any():
         assert view.max_elevation_deg == pytest.approx(elevs[visible].max(), abs=1e-6)
         assert view.min_range_km == pytest.approx(ranges[visible].min(), abs=1e-6)
+
+
+def _constellation() -> list[EarthSatellite]:
+    """A spread of Starlink-like orbits (varied RAAN/mean anomaly) plus the ISS.
+
+    Enough geometric variety that, at any test instant, some satellites are
+    overhead, some near the mask, and some below the horizon.
+    """
+    sats = [_iss()]
+    for i, raan in enumerate(range(0, 360, 45)):
+        for j, ma in enumerate(range(0, 360, 60)):
+            line2 = f"2 44714  53.0000 {raan:8.4f} 0001000  90.0000 {ma:8.4f} 15.06000000    07"
+            sats.append(EarthSatellite(_STARLINK[0], line2, f"SL-{i}-{j}", _ts))
+    return sats
+
+
+# The vectorized path (sgp4 SatrecArray + numpy TEME→ENU) approximates skyfield's
+# full frame chain; the spec tolerance is elevation ±0.2°, range ±5 km (design
+# doc, Part 1a). Counts may only disagree for satellites within the elevation
+# tolerance of the mask, so borderline satellites are excluded from the count
+# assertion rather than papering over a real disagreement.
+_ELEV_TOL_DEG = 0.2
+_RANGE_TOL_KM = 5.0
+
+
+def test_sky_view_series_matches_scalar_oracle_across_times() -> None:
+    sats = _constellation()
+    lat, lon = 47.6, -122.3
+    times = [WHEN + timedelta(minutes=15 * k) for k in range(8)]
+
+    series = sky_view_series(sats, lat, lon, times)
+
+    assert len(series) == len(times)
+    for when, view in zip(times, series, strict=True):
+        oracle = sky_view(sats, lat, lon, when)
+        assert view.sats_visible == oracle.sats_visible
+        if oracle.sats_visible:
+            assert view.max_elevation_deg is not None and view.min_range_km is not None
+            assert oracle.max_elevation_deg is not None and oracle.min_range_km is not None
+            assert view.max_elevation_deg == pytest.approx(
+                oracle.max_elevation_deg, abs=_ELEV_TOL_DEG
+            )
+            assert view.min_range_km == pytest.approx(oracle.min_range_km, abs=_RANGE_TOL_KM)
+        else:
+            assert view.max_elevation_deg is None
+            assert view.min_range_km is None
+
+
+def test_sky_view_series_single_instant_matches_scalar_aggregate() -> None:
+    sat = _iss()
+    lat, lon = _subpoint(sat)
+    [view] = sky_view_series([sat], lat, lon, [WHEN])
+    oracle = sky_view([sat], lat, lon, WHEN)
+    assert view.sats_visible == oracle.sats_visible == 1
+    assert oracle.max_elevation_deg is not None and oracle.min_range_km is not None
+    assert view.max_elevation_deg == pytest.approx(oracle.max_elevation_deg, abs=_ELEV_TOL_DEG)
+    assert view.min_range_km == pytest.approx(oracle.min_range_km, abs=_RANGE_TOL_KM)
+
+
+def test_sky_view_series_empty_inputs() -> None:
+    assert sky_view_series([], 47.6, -122.3, [WHEN]) == [sky_view([], 47.6, -122.3, WHEN)]
+    assert sky_view_series([_iss()], 47.6, -122.3, []) == []
+
+
+def test_sky_view_series_naive_datetimes_treated_as_utc() -> None:
+    sat = _iss()
+    lat, lon = _subpoint(sat)
+    naive = WHEN.replace(tzinfo=None)
+    aware = sky_view_series([sat], lat, lon, [WHEN])
+    assert sky_view_series([sat], lat, lon, [naive]) == aware
 
 
 def test_satellites_from_gp_roundtrips_a_celestrak_omm_record() -> None:

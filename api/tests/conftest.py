@@ -66,7 +66,7 @@ def db_pool(pg_dsn: str, _schema: None) -> Iterator[None]:
     """Point the process pool at the container and truncate between tests."""
     pool = db.configure_pool(pg_dsn)
     with pool.connection() as conn:
-        conn.execute("TRUNCATE measurements, users RESTART IDENTITY CASCADE")
+        conn.execute("TRUNCATE measurements, users, forecast_cache RESTART IDENTITY CASCADE")
         conn.commit()
     yield
     pool.close()

@@ -86,6 +86,35 @@ def get_forecast_series(
     return parse_precip_series(data)
 
 
+# 48 h series cache, same per-(cell, hour) courtesy posture as the now-cast. All
+# live keys share the current hour, so the whole dict is dropped on rollover
+# rather than growing one generation per hour.
+_series_cache: dict[tuple[int, datetime], dict[datetime, float]] = {}
+
+
+def get_forecast_series_cached(
+    cell: int,
+    lat: float,
+    lon: float,
+    now: datetime,
+    fetch: Callable[[float, float], dict] = _http_fetch_series,
+) -> dict[datetime, float]:
+    """48 h precip series for a cell, fetched at most once per UTC hour.
+
+    Failures return {} and are not cached, so the next request retries."""
+    hour = now.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+    key = (cell, hour)
+    hit = _series_cache.get(key)
+    if hit is not None:
+        return hit
+    if any(k[1] != hour for k in _series_cache):
+        _series_cache.clear()
+    series = get_forecast_series(lat, lon, fetch)
+    if series:
+        _series_cache[key] = series
+    return series
+
+
 def get_nowcast(
     cell: int,
     lat: float,

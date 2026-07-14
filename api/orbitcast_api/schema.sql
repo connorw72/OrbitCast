@@ -34,8 +34,28 @@ CREATE TABLE IF NOT EXISTS measurements (
     hw_version      TEXT
 );
 
+-- Served forecasts, written through on compute (§7.2, design spec Part 1b). Reads
+-- are always scoped to the currently promoted model_version, so rows from
+-- superseded versions are simply never matched — and the (cell, hour, metric)
+-- primary key means a re-promotion overwrites them in place rather than
+-- accumulating, keeping the table bounded at active-cell scale. Weather inputs
+-- are themselves cached per (cell, hour), so a cached row is exactly as fresh as
+-- the weather cache.
+CREATE TABLE IF NOT EXISTS forecast_cache (
+    h3_cell       BIGINT NOT NULL,
+    hour_utc      TIMESTAMPTZ NOT NULL,
+    metric        TEXT NOT NULL,           -- 'latency' | 'dl'
+    q10           REAL NOT NULL,
+    q50           REAL NOT NULL,
+    q90           REAL NOT NULL,
+    basis         TEXT NOT NULL,           -- provenance at compute time (§6.3)
+    model_version TEXT NOT NULL,
+    PRIMARY KEY (h3_cell, hour_utc, metric)
+);
+
 -- Btree on every h3_cell column; BRIN on the append-only measurement timestamp
--- (§7.2). That is the whole index story.
+-- (§7.2). forecast_cache's PK already leads with h3_cell. That is the whole
+-- index story.
 CREATE INDEX IF NOT EXISTS idx_users_h3_cell ON users (h3_cell);
 CREATE INDEX IF NOT EXISTS idx_measurements_h3_cell ON measurements (h3_cell);
 CREATE INDEX IF NOT EXISTS idx_measurements_user_id ON measurements (user_id);

@@ -9,7 +9,7 @@ load rather than every second.
 from datetime import UTC, datetime
 
 from fastapi import APIRouter
-from orbitcast_core.orbital import sky_view
+from orbitcast_core.orbital import sky_view_series
 from orbitcast_core.schedule import RECONFIG_SECONDS, next_reconfig, seconds_to_reconfig
 from orbitcast_core.spatial import cell_centroid
 
@@ -28,7 +28,7 @@ def _now() -> datetime:
 def skyview(cell: int) -> SkyviewResponse:
     lat, lon = cell_centroid(cell)
     now = _now()
-    view = sky_view(get_satellites(), lat, lon, now)
+    [view] = sky_view_series(get_satellites(), lat, lon, [now])
     return SkyviewResponse(
         cell=cell,
         lat=lat,

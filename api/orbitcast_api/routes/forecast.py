@@ -20,9 +20,10 @@ from ..forecast import (
     resolve_median,
     resolve_ookla,
 )
+from ..forecast_cache import read_cached, write_through
 from ..satellites import get_satellites
 from ..schemas import ForecastHour, ForecastResponse
-from ..weather import get_forecast_series
+from ..weather import get_forecast_series_cached
 
 router = APIRouter()
 
@@ -41,29 +42,59 @@ def forecast(cell: int) -> ForecastResponse:
     lat, lon = cell_centroid(cell)
     now = _now()
     hours = next_hours(now)
+    version = promoted_version(settings.models_dir)
 
-    weather_series = get_forecast_series(lat, lon)
-    orbital = get_orbital_series(get_satellites(), lat, lon, hours)
-    baseline, devices = resolve_ookla(cell, settings.marts_dir)
+    # Read-through: hours already served under the promoted version come from
+    # Postgres; only the gap is computed and written back (design spec Part 1b).
+    cached = read_cached(cell, hours, version) if version is not None else {}
+    missing = [h for h in hours if h not in cached]
+
+    weather_series = get_forecast_series_cached(cell, lat, lon, now)
     cell_median, basis = resolve_median(cell, settings.marts_dir)
 
-    horizon = build_forecast(
-        cell,
-        now,
-        model,
-        weather_series=weather_series,
-        orbital_by_hour=orbital,
-        ookla_baseline=baseline,
-        ookla_devices=devices,
-        cell_median=cell_median,
-        basis=basis,
-    )
+    computed: dict[datetime, dict] = {}
+    if missing:
+        orbital = get_orbital_series(get_satellites(), lat, lon, missing)
+        baseline, devices = resolve_ookla(cell, settings.marts_dir)
+        payload = build_forecast(
+            cell,
+            now,
+            model,
+            weather_series=weather_series,
+            orbital_by_hour=orbital,
+            ookla_baseline=baseline,
+            ookla_devices=devices,
+            cell_median=cell_median,
+            basis=basis,
+            hours=missing,
+        )
+        if version is not None:
+            write_through(cell, version, payload)
+        computed = {datetime.fromisoformat(e["hour"]): e for e in payload}
+
+    horizon = []
+    for h in hours:
+        if h in computed:
+            horizon.append(computed[h])
+        else:
+            entry = cached[h]
+            # Weather isn't cached with the bands; it rejoins from the (equally
+            # hour-fresh) weather cache so the payload shape is identical.
+            horizon.append(
+                {
+                    "hour": h.isoformat(),
+                    "basis": entry["basis"],
+                    "latency": entry["latency"],
+                    "dl": entry["dl"],
+                    "weather": {"precip_mm_h": float(weather_series.get(h, 0.0))},
+                }
+            )
     return ForecastResponse(
         cell=cell,
         lat=lat,
         lon=lon,
         generated_at=now,
-        model_version=promoted_version(settings.models_dir),
+        model_version=version,
         basis=basis,
         horizon=[ForecastHour.model_validate(h) for h in horizon],
     )

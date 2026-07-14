@@ -6,11 +6,12 @@ Ookla context, the fallback rolling median), predicts the quantile bands, and
 shapes the payload. Inference is in-process — no model server (§7.1).
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
-from orbitcast_core.orbital import sky_view
+from orbitcast_core.orbital import sky_view_series
 from orbitcast_ml.fallback import Basis, CellStat, resolve_cell_median
 from orbitcast_ml.forecast import assemble_payload, build_feature_matrix
 from orbitcast_ml.models import ForecastModel
@@ -45,12 +46,13 @@ def get_orbital_series(
 ) -> dict[datetime, tuple[float, float]]:
     """sats_visible + best elevation per hour via in-process propagation (§4.1).
 
-    Empty best-elevation (no satellite above the mask) is passed as NaN so the
-    model treats it as missing rather than a real 0°.
+    All satellites x all hours propagate in one vectorized call — the per-request
+    hot path (design doc Part 1a). Empty best-elevation (no satellite above the
+    mask) is passed as NaN so the model treats it as missing rather than a real 0°.
     """
+    views = sky_view_series(satellites, lat, lon, list(hours))
     series: dict[datetime, tuple[float, float]] = {}
-    for h in hours:
-        view = sky_view(satellites, lat, lon, h)
+    for h, view in zip(hours, views, strict=True):
         max_el = view.max_elevation_deg if view.max_elevation_deg is not None else float("nan")
         series[h] = (float(view.sats_visible), float(max_el))
     return series
@@ -61,13 +63,19 @@ def resolve_ookla(cell: int, marts_dir: Path) -> tuple[float, float]:
 
     Best-effort: returns (NaN, NaN) if the mart is absent or the cell is missing,
     which the model reads as missing context (§6.3)."""
-    rows = _read_mart_rows(marts_dir / "ookla_context.parquet")
-    for r in rows:
-        if r.get("h3_cell") == cell:
-            return float(r.get("terrestrial_baseline_mbps", float("nan"))), float(
-                r.get("devices", float("nan"))
-            )
-    return float("nan"), float("nan")
+    index = _mart_index(marts_dir / "ookla_context.parquet", "ookla", _build_ookla_index)
+    return index.get(cell, (float("nan"), float("nan")))
+
+
+def _build_ookla_index(rows: list[dict]) -> dict[int, tuple[float, float]]:
+    return {
+        int(r["h3_cell"]): (
+            float(r.get("terrestrial_baseline_mbps", float("nan"))),
+            float(r.get("devices", float("nan"))),
+        )
+        for r in rows
+        if r.get("h3_cell") is not None
+    }
 
 
 def resolve_median(cell: int, marts_dir: Path) -> tuple[float, Basis]:
@@ -76,15 +84,11 @@ def resolve_median(cell: int, marts_dir: Path) -> tuple[float, Basis]:
     Reads the label-aggregate marts if present; with no labels yet, falls back to
     the latitude prior (NaN median, ``latitude_prior`` basis) so the endpoint is
     usable before any labels exist."""
-    stat_rows = _read_mart_rows(marts_dir / "cell_label_stats.parquet")
-    prior_rows = _read_mart_rows(marts_dir / "latitude_priors.parquet")
-    if not stat_rows and not prior_rows:
+    lookup = _mart_index(marts_dir / "cell_label_stats.parquet", "stats", _build_stats_index)
+    lat_prior = _mart_index(marts_dir / "latitude_priors.parquet", "priors", _build_priors_index)
+    if not lookup and not lat_prior:
         return float("nan"), "latitude_prior"
 
-    lookup = {
-        r["h3_cell"]: CellStat(median=float(r["median"]), hours=int(r["hours"])) for r in stat_rows
-    }
-    lat_prior = {int(r["band"]): float(r["median"]) for r in prior_rows}
     try:
         return resolve_cell_median(cell, lookup, lat_prior, min_hours=_MIN_CELL_HOURS)
     except KeyError:
@@ -92,12 +96,46 @@ def resolve_median(cell: int, marts_dir: Path) -> tuple[float, Basis]:
         return float("nan"), "latitude_prior"
 
 
-def _read_mart_rows(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
+def _build_stats_index(rows: list[dict]) -> dict[int, CellStat]:
+    return {r["h3_cell"]: CellStat(median=float(r["median"]), hours=int(r["hours"])) for r in rows}
+
+
+def _build_priors_index(rows: list[dict]) -> dict[int, float]:
+    return {int(r["band"]): float(r["median"]) for r in rows}
+
+
+# Marts are re-read only when their file changes, and per-cell lookups are dict
+# hits, not linear scans (design doc Part 1c) — the same (path, mtime) posture as
+# `satellites.load_satellites`. A missing mart memoizes as empty under mtime None,
+# so a mart appearing later is picked up.
+_mart_rows_memo: dict[Path, tuple[float | None, list[dict]]] = {}
+_mart_index_memo: dict[tuple[Path, str], tuple[float | None, object]] = {}
+
+
+def _read_parquet_rows(path: Path) -> list[dict]:
     import pyarrow.parquet as pq
 
     return pq.read_table(str(path)).to_pylist()
+
+
+def _read_mart_rows(path: Path) -> list[dict]:
+    mtime = path.stat().st_mtime if path.exists() else None
+    hit = _mart_rows_memo.get(path)
+    if hit is not None and hit[0] == mtime:
+        return hit[1]
+    rows = _read_parquet_rows(path) if mtime is not None else []
+    _mart_rows_memo[path] = (mtime, rows)
+    return rows
+
+
+def _mart_index[T](path: Path, kind: str, build: Callable[[list[dict]], T]) -> T:
+    mtime = path.stat().st_mtime if path.exists() else None
+    hit = _mart_index_memo.get((path, kind))
+    if hit is not None and hit[0] == mtime:
+        return cast(T, hit[1])
+    view = build(_read_mart_rows(path))
+    _mart_index_memo[(path, kind)] = (mtime, view)
+    return view
 
 
 def load_promoted_model(models_root: Path) -> ForecastModel | None:
@@ -127,9 +165,13 @@ def build_forecast(
     cell_median: float,
     basis: Basis,
     source_quality: float = _SERVE_SOURCE_QUALITY,
+    hours: Sequence[datetime] | None = None,
 ) -> list[dict]:
-    """Assemble features, run inference, and shape the 48 h payload for a cell."""
-    hours = next_hours(now)
+    """Assemble features, run inference, and shape the payload for a cell.
+
+    ``hours`` defaults to the full 48 h horizon from ``now``; the cache
+    read-through path passes only the hours missing from forecast_cache."""
+    hours = list(hours) if hours is not None else next_hours(now)
     matrix = build_feature_matrix(
         cell,
         hours,

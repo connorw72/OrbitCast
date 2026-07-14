@@ -7,7 +7,7 @@ a fetch failure must not break the sky view.
 
 from datetime import UTC, datetime
 
-from orbitcast_api.weather import get_nowcast, parse_current
+from orbitcast_api.weather import get_forecast_series_cached, get_nowcast, parse_current
 
 _CANNED = {
     "current": {
@@ -58,3 +58,45 @@ def test_fetch_failure_returns_none_and_does_not_raise() -> None:
 
     now = datetime(2026, 7, 4, 12, 5, tzinfo=UTC)
     assert get_nowcast(1003, 47.6, -122.3, now, fetch=boom) is None
+
+
+# The 48 h series feeds /v1/forecast and (per active cell) /v1/map, so it gets the
+# same per-(cell, hour) posture as the now-cast — without it, every forecast
+# request is an Open-Meteo round-trip (design doc Part 1b freshness argument).
+
+_SERIES = {
+    "hourly": {"time": ["2026-07-04T12:00", "2026-07-04T13:00"], "precipitation": [0.0, 1.2]}
+}
+
+
+def test_series_same_cell_and_hour_is_fetched_only_once() -> None:
+    fetch = _Fetch(_SERIES)
+    now = datetime(2026, 7, 4, 12, 5, tzinfo=UTC)
+    first = get_forecast_series_cached(2001, 47.6, -122.3, now, fetch=fetch)
+    second = get_forecast_series_cached(2001, 47.6, -122.3, now.replace(minute=50), fetch=fetch)
+    assert fetch.calls == 1
+    assert first == second
+    assert first[datetime(2026, 7, 4, 13, tzinfo=UTC)] == 1.2
+
+
+def test_series_new_hour_refetches() -> None:
+    fetch = _Fetch(_SERIES)
+    for hour in (12, 13):
+        now = datetime(2026, 7, 4, hour, 5, tzinfo=UTC)
+        get_forecast_series_cached(2002, 47.6, -122.3, now, fetch=fetch)
+    assert fetch.calls == 2
+
+
+def test_series_failure_returns_empty_and_is_not_cached() -> None:
+    calls = {"n": 0}
+
+    def flaky(lat: float, lon: float) -> dict:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("open-meteo down")
+        return _SERIES
+
+    now = datetime(2026, 7, 4, 12, 5, tzinfo=UTC)
+    assert get_forecast_series_cached(2003, 47.6, -122.3, now, fetch=flaky) == {}
+    assert get_forecast_series_cached(2003, 47.6, -122.3, now, fetch=flaky) != {}
+    assert calls["n"] == 2
