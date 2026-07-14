@@ -15,6 +15,9 @@ const MAX_H = 420;
 
 interface Props {
   data: RegionMapData;
+  // The looked-up location, drawn as a reticle so "your region" is literal.
+  // Coordinates stay client-side (D12); this never leaves the browser.
+  marker?: { lat: number; lon: number };
 }
 
 interface Projected {
@@ -23,22 +26,28 @@ interface Projected {
 }
 
 const BASIS_LABEL: Record<string, string> = {
-  cell: "measured in-cell",
-  region: "regional data",
-  latitude_prior: "latitude-band prior (no local data)",
+  cell: "measured right here",
+  region: "based on nearby data",
+  latitude_prior: "rough estimate (no local data yet)",
+};
+
+// Friendly names for the metrics the API serves; fall back to the raw key.
+const METRIC_LABEL: Record<string, string> = {
+  dl_q50: "expected download (Mbps)",
+  latency_q50: "expected latency (ms)",
 };
 
 // Two-stop sequential ramp (low → high). The legend shows the numeric range so
 // the direction is explicit regardless of metric (higher throughput is better,
 // lower latency is better).
 function ramp(t: number): string {
-  const lo = [37, 52, 148]; // indigo
-  const hi = [46, 196, 182]; // teal
+  const lo = [58, 42, 0]; // dark amber
+  const hi = [255, 176, 0]; // amber phosphor (--amber)
   const c = lo.map((l, i) => Math.round(l + (hi[i] - l) * t));
   return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
 }
 
-export default function RegionMap({ data }: Props) {
+export default function RegionMap({ data, marker }: Props) {
   if (data.cells.length === 0) return null;
 
   // Decimal-string id → H3 hex (ids exceed JS Number precision) → boundary.
@@ -69,6 +78,19 @@ export default function RegionMap({ data }: Props) {
   const vMax = Math.max(...values);
   const vSpan = vMax - vMin || 1;
 
+  // Only draw the reticle when the location falls inside the mapped area — the
+  // map covers cells with data, which may not include the viewer at all.
+  const showMarker =
+    marker != null &&
+    marker.lat >= minLat &&
+    marker.lat <= maxLat &&
+    marker.lon >= minLng &&
+    marker.lon <= maxLng;
+  const markerX = showMarker ? px(marker.lon) : 0;
+  const markerY = showMarker ? py(marker.lat) : 0;
+  // Flip the label to the left edge when the reticle sits near the right one.
+  const labelLeft = showMarker && markerX > W - 60;
+
   return (
     <div className="region-map">
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Regional forecast hex map">
@@ -87,19 +109,36 @@ export default function RegionMap({ data }: Props) {
               strokeDasharray={prior ? "3 2" : undefined}
             >
               <title>
-                {`${cell.value.toFixed(1)} · ${BASIS_LABEL[cell.basis] ?? cell.basis} · ${cell.n} cell${cell.n === 1 ? "" : "s"}`}
+                {`${cell.value.toFixed(1)} · ${BASIS_LABEL[cell.basis] ?? cell.basis} · ${cell.n} area${cell.n === 1 ? "" : "s"} with data`}
               </title>
             </path>
           );
         })}
+
+        {showMarker && (
+          <g className="map-marker" pointerEvents="none">
+            <line x1={markerX - 14} x2={markerX - 5} y1={markerY} y2={markerY} />
+            <line x1={markerX + 5} x2={markerX + 14} y1={markerY} y2={markerY} />
+            <line x1={markerX} x2={markerX} y1={markerY - 14} y2={markerY - 5} />
+            <line x1={markerX} x2={markerX} y1={markerY + 5} y2={markerY + 14} />
+            <rect x={markerX - 4} y={markerY - 4} width={8} height={8} fill="none" />
+            <text
+              x={labelLeft ? markerX - 18 : markerX + 18}
+              y={markerY + 3.5}
+              textAnchor={labelLeft ? "end" : "start"}
+            >
+              you
+            </text>
+          </g>
+        )}
       </svg>
 
       <div className="map-legend">
-        <span className="legend-label">{data.metric}</span>
+        <span className="legend-label">{METRIC_LABEL[data.metric] ?? data.metric}</span>
         <span className="legend-min">{vMin.toFixed(0)}</span>
         <span className="legend-ramp" aria-hidden="true" />
         <span className="legend-max">{vMax.toFixed(0)}</span>
-        <span className="legend-note">dashed = latitude-band prior (no local data)</span>
+        <span className="legend-note">dashed hexes are rough estimates (no local data yet)</span>
       </div>
     </div>
   );

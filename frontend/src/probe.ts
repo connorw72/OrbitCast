@@ -18,7 +18,8 @@ export async function runBrowserProbe(
   const ws = new WebSocket(wsUrl());
   await new Promise<void>((resolve, reject) => {
     ws.onopen = () => resolve();
-    ws.onerror = () => reject(new Error("Could not connect to the latency probe"));
+    ws.onerror = () =>
+      reject(new Error("We couldn't open a test connection. Check your network and try again."));
   });
 
   const samples: LatencySample[] = [];
@@ -27,7 +28,10 @@ export async function runBrowserProbe(
       const token = `p${i}`; // unique per ping so a stale echo can't be mistimed
       const start = performance.now();
       const rtt = await new Promise<number>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("Latency probe timed out")), TIMEOUT_MS);
+        const timer = setTimeout(
+          () => reject(new Error("The test timed out mid-run. Worth trying again.")),
+          TIMEOUT_MS,
+        );
         ws.onmessage = (ev) => {
           if (ev.data !== token) return; // ignore anything but this ping's echo
           clearTimeout(timer);
@@ -35,7 +39,7 @@ export async function runBrowserProbe(
         };
         ws.onerror = () => {
           clearTimeout(timer);
-          reject(new Error("Latency probe connection error"));
+          reject(new Error("The test connection dropped mid-run. Worth trying again."));
         };
         ws.send(token);
       });

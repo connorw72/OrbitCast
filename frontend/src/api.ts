@@ -33,11 +33,24 @@ export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000"
 export async function geocode(query: string): Promise<Place> {
   const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
   const resp = await fetch(url, { headers: { Accept: "application/json" } });
-  if (!resp.ok) throw new Error("Geocoding service unavailable");
+  if (!resp.ok)
+    throw new Error("The place lookup service isn't answering right now. Try again in a minute.");
   const results = (await resp.json()) as Array<{ lat: string; lon: string; display_name: string }>;
-  if (results.length === 0) throw new Error("Location not found — try a city or town name");
+  if (results.length === 0)
+    throw new Error("We couldn't find that place. Try the name of a nearby city or town.");
   const r = results[0];
   return { lat: parseFloat(r.lat), lon: parseFloat(r.lon), label: r.display_name };
+}
+
+// Reverse geocode for the "use my location" flow — a display label only, at city
+// zoom. Same Nominatim policy as geocode(): one request per explicit user action.
+export async function reverseGeocode(lat: number, lon: number): Promise<string> {
+  const url = `https://nominatim.openstreetmap.org/reverse?format=json&zoom=10&lat=${lat}&lon=${lon}`;
+  const resp = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!resp.ok) throw new Error("reverse geocode unavailable");
+  const result = (await resp.json()) as { display_name?: string };
+  if (!result.display_name) throw new Error("no reverse geocode result");
+  return result.display_name;
 }
 
 // The server never sees raw coordinates (D12): resolve to an H3 res-5 cell
@@ -55,7 +68,8 @@ export function cellHex(lat: number, lon: number): string {
 
 export async function fetchSkyview(lat: number, lon: number): Promise<Skyview> {
   const resp = await fetch(`${API_BASE}/v1/skyview?cell=${cellId(lat, lon)}`);
-  if (!resp.ok) throw new Error("Sky view service unavailable");
+  if (!resp.ok)
+    throw new Error("We couldn't reach the sky-view service. Give it a moment and try again.");
   return (await resp.json()) as Skyview;
 }
 
@@ -89,7 +103,7 @@ export interface Forecast {
 export async function fetchForecast(lat: number, lon: number): Promise<Forecast | null> {
   const resp = await fetch(`${API_BASE}/v1/forecast?cell=${cellId(lat, lon)}`);
   if (resp.status === 503) return null;
-  if (!resp.ok) throw new Error("Forecast service unavailable");
+  if (!resp.ok) throw new Error("We couldn't load the forecast right now.");
   return (await resp.json()) as Forecast;
 }
 
@@ -113,7 +127,7 @@ export interface RegionMap {
 export async function fetchMap(res = 4, metric = "dl_q50"): Promise<RegionMap | null> {
   const resp = await fetch(`${API_BASE}/v1/map?res=${res}&metric=${encodeURIComponent(metric)}`);
   if (resp.status === 503) return null;
-  if (!resp.ok) throw new Error("Map service unavailable");
+  if (!resp.ok) throw new Error("We couldn't load the regional map right now.");
   return (await resp.json()) as RegionMap;
 }
 
@@ -142,7 +156,8 @@ export async function mintUser(): Promise<string> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({}),
   });
-  if (!resp.ok) throw new Error("Could not register an anonymous token");
+  if (!resp.ok)
+    throw new Error("We couldn't set up your anonymous token. Please try again in a moment.");
   return ((await resp.json()) as { token: string }).token;
 }
 
@@ -168,7 +183,8 @@ export async function submitMeasurements(
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ measurements }),
   });
-  if (!resp.ok) throw new Error("Could not submit measurements");
+  if (!resp.ok)
+    throw new Error("Your readings didn't make it through. Please try again in a moment.");
   return ((await resp.json()) as { accepted: number }).accepted;
 }
 
@@ -180,7 +196,8 @@ export async function fetchDishDoctor(token: string): Promise<DishDoctor | null>
     headers: { Authorization: `Bearer ${token}` },
   });
   if (resp.status === 503) return null;
-  if (resp.status === 401) throw new Error("That token wasn't recognized");
-  if (!resp.ok) throw new Error("Dish Doctor service unavailable");
+  if (resp.status === 401)
+    throw new Error("That token doesn't look right. Double-check it and try again.");
+  if (!resp.ok) throw new Error("Dish Doctor isn't answering right now. Try again shortly.");
   return (await resp.json()) as DishDoctor;
 }

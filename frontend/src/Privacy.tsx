@@ -7,7 +7,8 @@ export default function Privacy() {
       <h1>Privacy</h1>
       <p className="muted">
         The short version: no account, no email, no coordinates, no IP addresses
-        stored, no ads, no analytics. Here is the long version.
+        stored, no ads, no analytics. If that&rsquo;s all you needed to know, you can
+        stop here. The long version follows.
       </p>
 
       <h2>Your location</h2>
@@ -54,9 +55,10 @@ export default function Privacy() {
       <h2>No tracking</h2>
       <p>
         There are no analytics scripts, no cookies, no fingerprinting, and no ads on
-        this site. The only thing stored in your browser is your own anonymous token
-        (in localStorage, so your Dish Doctor works across visits). Clear it any time;
-        nothing breaks except that link.
+        this site. The only things stored in your browser are your own anonymous token
+        (in localStorage, so your Dish Doctor works across visits) and the last place
+        you looked up (so the next visit is one click). Both stay on your machine;
+        clear them any time and nothing breaks except those conveniences.
       </p>
 
       <h2>Weather lookups</h2>
@@ -69,9 +71,9 @@ export default function Privacy() {
       <p>
         Stop the reporter or stop probing, and no new data arrives. Because
         measurements are tied only to an anonymous token, deleting your token from
-        localStorage orphans them permanently. If you want the rows themselves gone,
-        open an issue with your token and we will delete them — that token is the only
-        proof of ownership that exists.
+        localStorage orphans them permanently. If you want the rows themselves gone
+        too, open an issue with your token and we will delete them — that token is the
+        only proof of ownership that exists, which is exactly the point.
       </p>
     </article>
   );

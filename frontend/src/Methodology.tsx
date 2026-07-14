@@ -7,12 +7,12 @@ export default function Methodology() {
       <h1>How OrbitCast works</h1>
       <p className="muted">
         Everything below is the whole story — including what this tool cannot know.
-        If you find an error, please open an issue.
+        If you spot an error, we genuinely want to hear about it: please open an issue.
       </p>
 
-      <h2>The three things OrbitCast shows</h2>
+      <h2>The three things OrbitCast shows you</h2>
 
-      <h3>1. Sky view — deterministic, no ML</h3>
+      <h3>1. The sky view — pure orbital math, no ML</h3>
       <p>
         Satellite counts and elevations are computed from published orbital elements:
         CelesTrak&rsquo;s <em>supplemental</em> GP set for Starlink, which is derived from
@@ -29,7 +29,7 @@ export default function Methodology() {
         arithmetic against that published schedule.
       </p>
 
-      <h3>2. Forecast — quantile ML with uncertainty</h3>
+      <h3>2. The forecast — machine learning that admits what it doesn&rsquo;t know</h3>
       <p>
         Latency and download-throughput forecasts come from LightGBM gradient-boosted
         trees trained with quantile objectives (10th, 50th, and 90th percentiles), so
@@ -99,18 +99,19 @@ export default function Methodology() {
         </li>
       </ul>
 
-      <h2>The &ldquo;basis&rdquo; label</h2>
+      <h2>Every forecast tells you what it stands on</h2>
       <p>
-        Every forecast tells you what it stands on. <strong>Your cell</strong>: enough
-        measurements exist in your ~20 km-scale area. <strong>Regional data</strong>: your
-        area is sparse, so the forecast borrows from the surrounding region.
-        <strong> Latitude-band prior</strong>: no nearby measurements at all — you are
-        seeing the average behavior of the constellation at your latitude, nothing more.
-        The map draws hexes only where a signal exists; blank space means &ldquo;no
-        data,&rdquo; and we would rather show you that than invent smoothness.
+        Under each forecast you&rsquo;ll see a note about where it comes from.
+        <strong> Your area</strong>: enough measurements exist within ~20 km of you.
+        <strong> The wider region</strong>: your area is quiet, so the forecast borrows
+        from surrounding measurements. <strong>Your latitude</strong>: no nearby
+        measurements at all — you are seeing the average behavior of the constellation
+        at your latitude, nothing more. The map draws hexes only where a signal exists;
+        blank space means &ldquo;no data,&rdquo; and we would rather show you that than
+        invent smoothness.
       </p>
 
-      <h2>Limitations — read these</h2>
+      <h2>Limitations — worth reading before you trust us</h2>
       <ul>
         <li>
           <strong>We cannot know which satellite serves you.</strong> Assignment is
